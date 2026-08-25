@@ -34,7 +34,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew build -x test
+        run: ./gradlew build -x test -Porg.gradle.java.installations.auto-detect=false "-Porg.gradle.java.installations.paths=$JAVA_HOME"
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
