@@ -63,7 +63,8 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
         }
     }
     private static final BlockState AIR_BLOCK_STATE = Blocks.AIR.defaultBlockState();
-    private static final int SECTION_SIZE = 16;
+    // blocks per 16x16x16 section (replaces LevelChunkSection.SECTION_SIZE, removed from vanilla in 26.x)
+    private static final int SECTION_SIZE = 16 * 16 * 16;
     // This lock must be held while there are active pointers to chunks in java,
     // but we just hold it for the entire tick so we don't have to think much about it.
     public final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
