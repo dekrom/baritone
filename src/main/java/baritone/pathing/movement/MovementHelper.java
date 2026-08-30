@@ -224,7 +224,9 @@ public interface MovementHelper extends ActionCosts, Helper {
             if (!up.getFluidState().isEmpty() || up.getBlock() instanceof WaterlilyBlock) {
                 return false;
             }
-            return fluidState.getType() instanceof WaterFluid;
+            // a waterlogged block (fence, wall, pane, bars, stairs, leaves...) keeps its own collision,
+            // so it's only passable if the block itself is
+            return fluidState.getType() instanceof WaterFluid && state.isPathfindable(PathComputationType.LAND);
         }
 
         return state.isPathfindable(PathComputationType.LAND);
