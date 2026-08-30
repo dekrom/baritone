@@ -336,8 +336,22 @@ public final class ElytraBehavior implements Helper {
             }
             final BetterBlockPos rangeStart = path.get(rangeStartIncl);
             if (!ElytraBehavior.this.passable(rangeStart.x, rangeStart.y, rangeStart.z, false)) {
-                // we're in a wall
-                return; // previous iterations of this function SHOULD have fixed this by now :rage_cat:
+                // the node closest to us is now inside a block, so the terrain changed since this path was computed
+                final BetterBlockPos feet = ctx.playerFeet();
+                if (!ElytraBehavior.this.passable(feet.x, feet.y, feet.z, false)) {
+                    return; // we're inside a block ourselves, recalculating from here can't succeed
+                }
+                int rejoin = rangeEndExcl - 1;
+                while (rejoin > rangeStartIncl && !ElytraBehavior.this.passable(path.get(rejoin).x, path.get(rejoin).y, path.get(rejoin).z, false)) {
+                    rejoin--;
+                }
+                final var wallDest = destinationFixed();
+                final OptionalInt rejoinAt = rejoin > rangeStartIncl && path.get(rejoin).distanceSq(wallDest) < feet.distanceSq(wallDest)
+                        ? OptionalInt.of(rejoin)
+                        : OptionalInt.empty();
+                this.pathRecalcSegment(rejoinAt)
+                        .thenRun(() -> logVerbose("Recalculated segment, path node was inside a block"));
+                return;
             }
 
             if (ElytraBehavior.this.process.state != ElytraProcess.State.LANDING && this.ticksNearUnchanged > 100) {
