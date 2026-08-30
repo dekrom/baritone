@@ -87,7 +87,9 @@ public interface ActionCosts {
         double tmpDistance = distance;
         int tickCount = 0;
         while (true) {
-            double fallDistance = velocity(tickCount);
+            // you have already been falling for one tick by the time you have moved at all; velocity(0) is 0,
+            // so indexing from tickCount would charge a phantom tick against every fall
+            double fallDistance = velocity(tickCount + 1);
             if (tmpDistance <= fallDistance) {
                 return tickCount + tmpDistance / fallDistance;
             }
