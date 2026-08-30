@@ -1494,6 +1494,12 @@ public final class Settings {
     public final Setting<Boolean> elytraAutoJump = new Setting<>(false);
 
     /**
+     * When {@link #elytraAutoJump} can't find a ledge to walk off of, jump on the spot and light a firework the
+     * moment the elytra opens instead of giving up. Costs one firework per attempt.
+     */
+    public final Setting<Boolean> elytraStandingTakeoff = new Setting<>(true);
+
+    /**
      * The seed used to generate chunks for long distance elytra path-finding in the nether.
      * Defaults to 2b2t's nether seed.
      */
