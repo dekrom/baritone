@@ -40,7 +40,9 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.projectile.FireworkRocketEntity;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
@@ -792,6 +794,8 @@ public final class ElytraBehavior implements Helper {
         public final Vec3 motion;
         public final AABB boundingBox;
         public final boolean ignoreLava;
+        public final double gravity;
+        public final boolean slowFalling;
         public final FireworkBoost boost;
         public final IAimProcessor aimProcessor;
 
@@ -809,6 +813,8 @@ public final class ElytraBehavior implements Helper {
             this.motion = ctx.playerMotion();
             this.boundingBox = ctx.player().getBoundingBox();
             this.ignoreLava = ctx.player().isInLava();
+            this.gravity = ctx.player().getAttributeValue(Attributes.GRAVITY);
+            this.slowFalling = ctx.player().hasEffect(MobEffects.SLOW_FALLING);
 
             final Integer fireworkTicksExisted;
             if (async && ElytraBehavior.this.deployedFireworkLastTick) {
@@ -843,6 +849,8 @@ public final class ElytraBehavior implements Helper {
                     && Objects.equals(this.motion, other.motion)
                     && Objects.equals(this.boundingBox, other.boundingBox)
                     && this.ignoreLava == other.ignoreLava
+                    && this.gravity == other.gravity
+                    && this.slowFalling == other.slowFalling
                     && Objects.equals(this.boost, other.boost);
         }
     }
@@ -1200,7 +1208,7 @@ public final class ElytraBehavior implements Helper {
             );
             final Vec3 lookDirection = RotationUtils.calcLookDirectionFromRotation(rotation);
 
-            motion = step(motion, lookDirection, rotation.getPitch());
+            motion = step(motion, lookDirection, rotation.getPitch(), context.gravity, context.slowFalling);
             delta = delta.subtract(motion);
 
             // Collision box while the player is in motion, with additional padding for safety
@@ -1238,7 +1246,16 @@ public final class ElytraBehavior implements Helper {
         return displacement;
     }
 
-    private static Vec3 step(final Vec3 motion, final Vec3 lookDirection, final float pitch) {
+    /**
+     * A faithful reimplementation of {@code LivingEntity.updateFallFlyingMovement}. Every constant, guard and
+     * rounding step is kept identical to vanilla so that a simulated trajectory matches what the server will
+     * actually compute; any divergence here compounds over the simulated horizon and puts the bot into walls.
+     *
+     * @param gravity     The player's {@code Attributes.GRAVITY} value, which is not always the 0.08 default
+     * @param slowFalling Whether the player has Slow Falling, which caps gravity while not ascending
+     */
+    private static Vec3 step(final Vec3 motion, final Vec3 lookDirection, final float pitch,
+                             final double gravity, final boolean slowFalling) {
         double motionX = motion.x;
         double motionY = motion.y;
         double motionZ = motion.z;
@@ -1246,20 +1263,19 @@ public final class ElytraBehavior implements Helper {
         float pitchRadians = pitch * RotationUtils.DEG_TO_RAD_F;
         double pitchBase2 = Math.sqrt(lookDirection.x * lookDirection.x + lookDirection.z * lookDirection.z);
         double flatMotion = Math.sqrt(motionX * motionX + motionZ * motionZ);
-        double thisIsAlwaysOne = lookDirection.length();
-        float pitchBase3 = Mth.cos(pitchRadians);
-        //System.out.println("always the same lol " + -pitchBase + " " + pitchBase3);
-        //System.out.println("always the same lol " + Math.abs(pitchBase3) + " " + pitchBase2);
-        //System.out.println("always 1 lol " + thisIsAlwaysOne);
-        pitchBase3 = (float) ((double) pitchBase3 * (double) pitchBase3 * Math.min(1, thisIsAlwaysOne / 0.4));
-        motionY += -0.08 + (double) pitchBase3 * 0.06;
+        // vanilla uses the exact Math.cos here and keeps the square in double precision, unlike the Mth table
+        double pitchBase3 = Mth.square(Math.cos((double) pitchRadians));
+        // LivingEntity.getEffectiveGravity
+        double effectiveGravity = slowFalling && motionY <= 0 ? Math.min(gravity, 0.01) : gravity;
+
+        motionY += effectiveGravity * (-1.0 + pitchBase3 * 0.75);
         if (motionY < 0 && pitchBase2 > 0) {
-            double speedModifier = motionY * -0.1 * (double) pitchBase3;
+            double speedModifier = motionY * -0.1 * pitchBase3;
             motionY += speedModifier;
             motionX += lookDirection.x * speedModifier / pitchBase2;
             motionZ += lookDirection.z * speedModifier / pitchBase2;
         }
-        if (pitchRadians < 0) { // if you are looking down (below level)
+        if (pitchRadians < 0 && pitchBase2 > 0) { // if you are looking down (below level)
             double anotherSpeedModifier = flatMotion * (double) (-Mth.sin(pitchRadians)) * 0.04;
             motionY += anotherSpeedModifier * 3.2;
             motionX -= lookDirection.x * anotherSpeedModifier / pitchBase2;
@@ -1269,10 +1285,9 @@ public final class ElytraBehavior implements Helper {
             motionX += (lookDirection.x / pitchBase2 * flatMotion - motionX) * 0.1;
             motionZ += (lookDirection.z / pitchBase2 * flatMotion - motionZ) * 0.1;
         }
-        motionX *= 0.99f;
-        motionY *= 0.98f;
-        motionZ *= 0.99f;
-        //System.out.println(motionX + " " + motionY + " " + motionZ);
+        motionX *= 0.9900000095367432;
+        motionY *= 0.9800000190734863;
+        motionZ *= 0.9900000095367432;
 
         return new Vec3(motionX, motionY, motionZ);
     }
