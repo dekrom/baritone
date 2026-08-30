@@ -62,6 +62,13 @@ public class GoalGetToBlock implements Goal, IGoalRenderPos {
     }
 
     @Override
+    public double heuristic() {
+        // the largest heuristic value that is still guaranteed to be inside the goal: the six positions
+        // adjacent to the block, of which the one directly above is the most expensive
+        return Math.max(GoalXZ.calculate(1, 0), Math.max(GoalYLevel.calculate(0, 1), GoalYLevel.calculate(0, -1)));
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
