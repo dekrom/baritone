@@ -747,7 +747,71 @@ public final class ElytraBehavior implements Helper {
                 }
             }
         }
-        return solution;
+        return this.solveSurvival(context, solution);
+    }
+
+    /**
+     * Last resort when no pitch reaches the path (e.g. the terrain changed and the goal is now walled off):
+     * fly the pitch that stays collision-free the longest, biased towards climbing, so that the path
+     * recalculation has time to catch up. If an impact is imminent and a firework would provably extend
+     * survival, one is forced.
+     */
+    private Solution solveSurvival(final SolverContext context, final Solution unsolved) {
+        if (landingMode) {
+            return unsolved;
+        }
+        final float yaw = unsolved != null ? unsolved.rotation.getYaw() : ctx.playerRotations().getYaw();
+        final int ticks = Math.max(5, Baritone.settings().elytraSimulationTicks.value);
+        final int ticksBoosted = context.boost.isBoosted() ? Math.max(1, context.boost.getGuaranteedBoostTicks()) : 0;
+
+        final PitchResult best = this.solveSurvivalPitch(context, yaw, ticks, ticksBoosted, 0);
+        if (best == null) { // cancelled by the game thread
+            return unsolved;
+        }
+
+        final int survivedTicks = best.steps.size() - 1;
+        if (survivedTicks < ticks && survivedTicks <= 12 && !context.boost.isBoosted() && context.hasFireworks) {
+            final PitchResult boosted = this.solveSurvivalPitch(context, yaw, ticks, 10, 2);
+            if (boosted != null && boosted.steps.size() > best.steps.size() + 2) {
+                final Vec3 last = boosted.steps.get(boosted.steps.size() - 1);
+                this.simulationLine = boosted.steps;
+                return new Solution(context, new Rotation(yaw, boosted.pitch), context.start.add(last), true, true);
+            }
+        }
+
+        this.simulationLine = best.steps;
+        return new Solution(context, new Rotation(yaw, best.pitch), null, false, false);
+    }
+
+    private PitchResult solveSurvivalPitch(final SolverContext context, final float yaw, final int ticks,
+                                           final int ticksBoosted, final int ticksBoostDelay) {
+        final float yawRadians = yaw * RotationUtils.DEG_TO_RAD_F;
+        // a goal far along the direction we are about to face, so that the simulated yaw stays fixed
+        final Vec3 direction = new Vec3(-Mth.sin(yawRadians) * 1e4, 0, Mth.cos(yawRadians) * 1e4);
+        final float currentPitch = ctx.playerRotations().getPitch();
+
+        PitchResult best = null;
+        // scan the climbing side (negative pitch) first; new walls are usually escapable from above
+        for (float pitch = currentPitch; pitch >= -90; pitch -= 3) {
+            if (Thread.interrupted()) return null;
+            best = this.betterSurvival(context, direction, pitch, ticks, ticksBoosted, ticksBoostDelay, best);
+            if (best != null && best.steps.size() - 1 >= ticks) return best;
+        }
+        for (float pitch = currentPitch + 3; pitch <= 90; pitch += 3) {
+            if (Thread.interrupted()) return null;
+            best = this.betterSurvival(context, direction, pitch, ticks, ticksBoosted, ticksBoostDelay, best);
+            if (best != null && best.steps.size() - 1 >= ticks) return best;
+        }
+        return best;
+    }
+
+    private PitchResult betterSurvival(final SolverContext context, final Vec3 direction, final float pitch,
+                                       final int ticks, final int ticksBoosted, final int ticksBoostDelay,
+                                       final PitchResult best) {
+        final List<Vec3> steps = this.simulate(context, direction, pitch, ticks, ticksBoosted, ticksBoostDelay, true);
+        // longer survival wins; on equal survival prefer the trajectory that ends higher up
+        final double score = (steps.size() - 1) * 1000.0 + steps.get(steps.size() - 1).y;
+        return best == null || score > best.dot ? new PitchResult(pitch, score, steps) : best;
     }
 
     private void tickUseFireworks(final Vec3 start, final Vec3 goingTo, final boolean isBoosted, final boolean forceUseFirework) {
@@ -797,6 +861,7 @@ public final class ElytraBehavior implements Helper {
         public final boolean ignoreLava;
         public final double gravity;
         public final boolean slowFalling;
+        public final boolean hasFireworks;
         public final FireworkBoost boost;
         public final IAimProcessor aimProcessor;
 
@@ -816,6 +881,14 @@ public final class ElytraBehavior implements Helper {
             this.ignoreLava = ctx.player().isInLava();
             this.gravity = ctx.player().getAttributeValue(Attributes.GRAVITY);
             this.slowFalling = ctx.player().hasEffect(MobEffects.SLOW_FALLING);
+            boolean fireworks = false;
+            for (ItemStack stack : ctx.player().getInventory().items) {
+                if (isFireworks(stack)) {
+                    fireworks = true;
+                    break;
+                }
+            }
+            this.hasFireworks = fireworks;
 
             final Integer fireworkTicksExisted;
             if (async && ElytraBehavior.this.deployedFireworkLastTick) {
@@ -852,6 +925,7 @@ public final class ElytraBehavior implements Helper {
                     && this.ignoreLava == other.ignoreLava
                     && this.gravity == other.gravity
                     && this.slowFalling == other.slowFalling
+                    && this.hasFireworks == other.hasFireworks
                     && Objects.equals(this.boost, other.boost);
         }
     }
@@ -1149,7 +1223,8 @@ public final class ElytraBehavior implements Helper {
                     pitch,
                     ticks,
                     ticksBoosted,
-                    ticksBoostDelay
+                    ticksBoostDelay,
+                    false
             );
             if (displacement == null) {
                 continue;
@@ -1189,7 +1264,7 @@ public final class ElytraBehavior implements Helper {
     }
 
     private List<Vec3> simulate(final SolverContext context, final Vec3 goalDelta, final float pitch, final int ticks,
-                                final int ticksBoosted, final int ticksBoostDelay) {
+                                final int ticksBoosted, final int ticksBoostDelay, final boolean stopOnImpact) {
         final ITickableAimProcessor aimProcessor = context.aimProcessor.fork();
         Vec3 delta = goalDelta;
         Vec3 motion = context.motion;
@@ -1225,7 +1300,8 @@ public final class ElytraBehavior implements Helper {
                 for (int y = ymin; y < ymax; y++) {
                     for (int z = zmin; z < zmax; z++) {
                         if (!this.passable(x, y, z, context.ignoreLava)) {
-                            return null;
+                            // displacement only covers the ticks before the impact
+                            return stopOnImpact ? displacement : null;
                         }
                     }
                 }
