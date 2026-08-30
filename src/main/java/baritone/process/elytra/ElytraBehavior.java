@@ -679,6 +679,7 @@ public final class ElytraBehavior implements Helper {
         final NetherPath path = context.path;
         final int playerNear = landingMode ? path.size() - 1 : context.playerNear;
         final Vec3 start = context.start;
+        final int scanAhead = Math.max(1, Baritone.settings().elytraPathLookahead.value);
         Solution solution = null;
 
         for (int relaxation = 0; relaxation < 3; relaxation++) { // try for a strict solution first, then relax more and more (if we're in a corner or near some blocks, it will have to relax its constraints a bit)
@@ -687,7 +688,7 @@ public final class ElytraBehavior implements Helper {
             //int minStep = Math.max(0, playerNear - relaxation);
             int minStep = playerNear;
 
-            for (int i = Math.min(playerNear + 20, path.size() - 1); i >= minStep; i--) {
+            for (int i = Math.min(playerNear + scanAhead, path.size() - 1); i >= minStep; i--) {
                 if (Thread.interrupted()) return null; // cancelled by the game thread
                 final List<Pair<Vec3, Integer>> candidates = new ArrayList<>();
                 for (int dy : heights) {
