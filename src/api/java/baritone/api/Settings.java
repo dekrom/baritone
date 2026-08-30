@@ -1420,6 +1420,13 @@ public final class Settings {
     public final Setting<Integer> elytraPitchRange = new Setting<>(25);
 
     /**
+     * The number of path nodes ahead of the player that are considered as flight targets. Higher values let the bot
+     * commit to a further-away node and cut corners, which is smoother at firework speed, but are computationally
+     * more expensive.
+     */
+    public final Setting<Integer> elytraPathLookahead = new Setting<>(20);
+
+    /**
      * The minimum speed that the player can drop to (in blocks/tick) before a firework is automatically deployed.
      */
     public final Setting<Double> elytraFireworkSpeed = new Setting<>(1.2);
