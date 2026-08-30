@@ -139,13 +139,15 @@ public final class PathingBehavior extends Behavior implements IPathingBehavior,
                     // we are calculating
                     // are we calculating the right thing though? 🤔
                     BetterBlockPos calcFrom = inProgress.getStart();
-                    Optional<IPath> currentBest = inProgress.bestPathSoFar();
                     if ((current == null || !current.getPath().getDest().equals(calcFrom)) // if current ends in inProgress's start, then we're ok
                             && !calcFrom.equals(ctx.playerFeet()) && !calcFrom.equals(expectedSegmentStart) // if current starts in our playerFeet or pathStart, then we're ok
-                            && (!currentBest.isPresent() || (!currentBest.get().positions().contains(ctx.playerFeet()) && !currentBest.get().positions().contains(expectedSegmentStart))) // if
                     ) {
+                        // only now is it worth reconstructing the best path so far, which allocates one BetterBlockPos per node
+                        Optional<IPath> currentBest = inProgress.bestPathSoFar();
                         // when it was *just* started, currentBest will be empty so we need to also check calcFrom since that's always present
-                        inProgress.cancel(); // cancellation doesn't dispatch any events
+                        if (!currentBest.isPresent() || (!currentBest.get().positions().contains(ctx.playerFeet()) && !currentBest.get().positions().contains(expectedSegmentStart))) {
+                            inProgress.cancel(); // cancellation doesn't dispatch any events
+                        }
                     }
                 }
             }
