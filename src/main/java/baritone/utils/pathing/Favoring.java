@@ -39,7 +39,7 @@ public final class Favoring {
     public Favoring(IPath previous, CalculationContext context) { // create one just from previous path, no mob avoidances
         favorings = new Long2DoubleOpenHashMap();
         favorings.defaultReturnValue(1.0D);
-        double coeff = context.backtrackCostFavoringCoefficient;
+        double coeff = Math.max(context.backtrackCostFavoringCoefficient, 0.01); // a coefficient of 0 or below would make actionCost non-positive, which A* rejects
         if (coeff != 1D && previous != null) {
             previous.positions().forEach(pos -> favorings.put(BetterBlockPos.longHash(pos), coeff));
         }
