@@ -31,8 +31,8 @@ public class ActionCostsTest {
             double blocks = ticksToBlocks(FALL_N_BLOCKS_COST[i]);
             assertEquals(blocks, i, 0.00000000001); // If you add another 0 the test fails at i=989 LOL
         }
-        assertEquals(FALL_1_25_BLOCKS_COST, 6.2344, 0.00001);
-        assertEquals(FALL_0_25_BLOCKS_COST, 3.0710, 0.00001);
+        assertEquals(FALL_1_25_BLOCKS_COST, 5.2344, 0.00001);
+        assertEquals(FALL_0_25_BLOCKS_COST, 2.0710, 0.00001);
         assertEquals(JUMP_ONE_BLOCK_COST, 3.1634, 0.00001);
     }
 
@@ -40,10 +40,10 @@ public class ActionCostsTest {
         double fallDistance = 0;
         int integralComponent = (int) Math.floor(ticks);
         for (int tick = 0; tick < integralComponent; tick++) {
-            fallDistance += velocity(tick);
+            fallDistance += velocity(tick + 1);
         }
         double partialTickComponent = ticks - Math.floor(ticks);
-        double finalPartialTickVelocity = velocity(integralComponent);
+        double finalPartialTickVelocity = velocity(integralComponent + 1);
         double finalPartialTickDistance = finalPartialTickVelocity * partialTickComponent;
         fallDistance += finalPartialTickDistance;
         return fallDistance;
