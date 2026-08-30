@@ -157,6 +157,8 @@ public class MovementDescend extends Movement {
             BlockState ontoBlock = context.get(destX, newY, destZ);
             int unprotectedFallHeight = fallHeight - (y - effectiveStartHeight); // equal to fallHeight - y + effectiveFallHeight, which is equal to -newY + effectiveFallHeight, which is equal to effectiveFallHeight - newY
             double tentativeCost = WALK_OFF_BLOCK_COST + FALL_N_BLOCKS_COST[unprotectedFallHeight] + frontBreak + costSoFar;
+            // landing on top of a block ends the fall at newY + 1, so we only actually fall one block less than we probed
+            double tentativeCostOntoBlock = WALK_OFF_BLOCK_COST + FALL_N_BLOCKS_COST[unprotectedFallHeight - 1] + frontBreak + costSoFar;
             if (reachedMinimum && MovementHelper.isWater(ontoBlock)) {
                 if (!MovementHelper.canWalkThrough(context, destX, newY, destZ, ontoBlock)) {
                     return false;
@@ -208,14 +210,14 @@ public class MovementDescend extends Movement {
                 res.x = destX;
                 res.y = newY + 1;
                 res.z = destZ;
-                res.cost = tentativeCost;
+                res.cost = tentativeCostOntoBlock;
                 return false;
             }
             if (reachedMinimum && context.hasWaterBucket && unprotectedFallHeight <= context.maxFallHeightBucket + 1) {
                 res.x = destX;
                 res.y = newY + 1;// this is the block we're falling onto, so dest is +1
                 res.z = destZ;
-                res.cost = tentativeCost + context.placeBucketCost();
+                res.cost = tentativeCostOntoBlock + context.placeBucketCost();
                 return true;
             } else {
                 return false;
