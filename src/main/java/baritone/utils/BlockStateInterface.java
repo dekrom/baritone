@@ -53,6 +53,8 @@ public class BlockStateInterface {
 
     private final boolean useTheRealWorld;
 
+    public final boolean assumeWalkOnWater;
+
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     public BlockStateInterface(IPlayerContext ctx) {
@@ -69,6 +71,7 @@ public class BlockStateInterface {
             this.provider = (ClientChunkCache) world.getChunkSource();
         }
         this.useTheRealWorld = !Baritone.settings().pathThroughCachedOnly.value;
+        this.assumeWalkOnWater = Baritone.settings().assumeWalkOnWater.value;
         if (!ctx.minecraft().isSameThread()) {
             throw new IllegalStateException();
         }
