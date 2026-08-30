@@ -836,19 +836,54 @@ public final class ElytraBehavior implements Helper {
                 && (ctx.player().position().y < goingTo.y - 5 || start.distanceTo(new Vec3(goingTo.x + 0.5, ctx.player().position().y, goingTo.z + 0.5)) > 5) // UGH!!!!!!!
                 && currentSpeed < elytraFireworkSpeed * elytraFireworkSpeed))
         ) {
-            // Prioritize boosting fireworks over regular ones
-            // TODO: Take the minimum boost time into account?
-            if (!baritone.getInventoryBehavior().throwaway(true, ElytraBehavior::isBoostingFireworks) &&
-                    !baritone.getInventoryBehavior().throwaway(true, ElytraBehavior::isFireworks)) {
-                logDirect("no fireworks");
-                return;
-            }
             logVerbose("attempting to use firework" + (forceUseFirework ? " (forced)" : ""));
-            ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
-            this.minimumBoostTicks = 10 * (1 + getFireworkBoost(ctx.player().getItemInHand(InteractionHand.MAIN_HAND)).orElse(0));
-            this.remainingFireworkTicks = 10;
-            this.deployedFireworkLastTick = true;
+            this.useFirework();
         }
+    }
+
+    /**
+     * Lights a firework to get off the ground, for an elytra that was opened from a standing jump instead of a
+     * fall. There is no speed and only a couple of blocks of air to work with, so this can't wait for the solver
+     * to decide that a boost is warranted.
+     *
+     * @return {@code true} if a firework is now burning, {@code false} if we have none to use
+     */
+    public boolean useFireworkForTakeoff() {
+        if (this.remainingFireworkTicks > 0 || this.getAttachedFirework().isPresent()) {
+            return true;
+        }
+        return this.useFirework();
+    }
+
+    /**
+     * @return {@code true} if a firework was used
+     */
+    private boolean useFirework() {
+        // the main hand is what processRightClick uses, and selectFirework settles for putting something harmless
+        // there when the only firework we have is in the off hand, which would right click nothing at all
+        if (!this.selectFirework() || !isFireworks(ctx.player().getItemInHand(InteractionHand.MAIN_HAND))) {
+            logDirect("no fireworks");
+            return false;
+        }
+        ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
+        this.minimumBoostTicks = 10 * (1 + getFireworkBoost(ctx.player().getItemInHand(InteractionHand.MAIN_HAND)).orElse(0));
+        this.remainingFireworkTicks = 10;
+        this.deployedFireworkLastTick = true;
+        return true;
+    }
+
+    /**
+     * Puts a firework in the main hand. Picking one that is already in the hotbar is instant, but bringing one up
+     * from the rest of the inventory is a window click, and those only happen while stationary, so a takeoff has
+     * to call this before leaving the ground.
+     *
+     * @return {@code true} if the main hand now holds a firework
+     */
+    public boolean selectFirework() {
+        // Prioritize boosting fireworks over regular ones
+        // TODO: Take the minimum boost time into account?
+        return baritone.getInventoryBehavior().throwaway(true, ElytraBehavior::isBoostingFireworks)
+                || baritone.getInventoryBehavior().throwaway(true, ElytraBehavior::isFireworks);
     }
 
     private final class SolverContext {
