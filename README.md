@@ -23,7 +23,8 @@ one thing anarchy servers ask of a pathfinder: travelling a very long way, unatt
 dying. Everything upstream Baritone does — `#goto`, `#mine`, `#follow`, `#build`, `#farm` — works
 here unchanged.
 
-The fixes are version independent, so every supported Minecraft version gets all of them.
+Every fix lands on every supported Minecraft version, except the handful of bugs that only ever
+existed on one of them.
 
 ## Supported versions
 
