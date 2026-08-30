@@ -17,14 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get Java version
-        id: java
-        run: echo "version=$(grep '^java_version=' gradle.properties | cut -d= -f2)" >> $GITHUB_OUTPUT
+      - name: Read build config
+        id: cfg
+        run: |
+          mc=$(grep '^minecraft_version=' gradle.properties | cut -d= -f2)
+          version=${GITHUB_REF_NAME#v}
+          {
+            echo "java=$(grep '^java_version=' gradle.properties | cut -d= -f2)"
+            echo "mc=$mc"
+            echo "version=$version"
+            echo "modver=${version%-$mc}"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Set up JDK ${{ steps.java.outputs.version }}
+      - name: Set up JDK ${{ steps.cfg.outputs.java }}
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ steps.java.outputs.version }}
+          java-version: ${{ steps.cfg.outputs.java }}
           distribution: 'zulu'
 
       - name: Setup Gradle
@@ -34,10 +42,16 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew build -x test -Porg.gradle.java.installations.auto-detect=false "-Porg.gradle.java.installations.paths=$JAVA_HOME"
+        run: >
+          ./gradlew build
+          -Pmod_version=${{ steps.cfg.outputs.version }}
+          -Porg.gradle.java.installations.auto-detect=false
+          "-Porg.gradle.java.installations.paths=$JAVA_HOME"
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Baritone ${{ steps.cfg.outputs.modver }} for Minecraft ${{ steps.cfg.outputs.mc }}
           files: dist/*
+          fail_on_unmatched_files: true

@@ -1,144 +1,173 @@
 # Baritone
+
 <p align="center">
-  <a href="https://github.com/cabaletta/baritone/releases/"><img src="https://img.shields.io/github/downloads/cabaletta/baritone/total.svg" alt="GitHub All Releases"/></a>
+  <a href="https://github.com/dekrom/baritone/actions/workflows/gradle_build.yml"><img src="https://github.com/dekrom/baritone/actions/workflows/gradle_build.yml/badge.svg" alt="Build"/></a>
+  <a href="https://github.com/dekrom/baritone/actions/workflows/run_tests.yml"><img src="https://github.com/dekrom/baritone/actions/workflows/run_tests.yml/badge.svg" alt="Tests"/></a>
+  <a href="https://github.com/dekrom/baritone/releases/"><img src="https://img.shields.io/github/v/release/dekrom/baritone?sort=date" alt="Release"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-LGPL--3.0-green.svg" alt="License"/></a>
 </p>
 
 <p align="center">
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.12.2-brightgreen.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.13.2-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.14.4-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.15.2-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.16.5-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.17.1-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.18.2-yellow.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.19.2-brightgreen.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.19.4-brightgreen.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.20.1-brightgreen.svg" alt="Minecraft"/></a>
-  <a href="#Baritone"><img src="https://img.shields.io/badge/MC-1.21.3-brightgreen.svg" alt="Minecraft"/></a>
+  <img src="https://img.shields.io/badge/MC-1.21.4-brightgreen.svg" alt="1.21.4"/>
+  <img src="https://img.shields.io/badge/MC-1.21.5-brightgreen.svg" alt="1.21.5"/>
+  <img src="https://img.shields.io/badge/MC-1.21.8-brightgreen.svg" alt="1.21.8"/>
+  <img src="https://img.shields.io/badge/MC-1.21.11-brightgreen.svg" alt="1.21.11"/>
+  <img src="https://img.shields.io/badge/MC-26.1-brightgreen.svg" alt="26.1"/>
+  <img src="https://img.shields.io/badge/MC-26.2-brightgreen.svg" alt="26.2"/>
 </p>
 
-<p align="center">
-  <a href="https://travis-ci.com/cabaletta/baritone/"><img src="https://travis-ci.com/cabaletta/baritone.svg?branch=master" alt="Build Status"/></a>
-  <a href="https://github.com/cabaletta/baritone/releases/"><img src="https://img.shields.io/github/release/cabaletta/baritone.svg" alt="Release"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-LGPL--3.0%20with%20anime%20exception-green.svg" alt="License"/></a>
-  <a href="https://www.codacy.com/gh/cabaletta/baritone/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=cabaletta/baritone&amp;utm_campaign=Badge_Grade"><img src="https://app.codacy.com/project/badge/Grade/cadab857dab049438b6e28b3cfc5570e" alt="Codacy Badge"/></a>
-  <a href="https://github.com/cabaletta/baritone/blob/master/CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/%E2%9D%A4-code%20of%20conduct-blue.svg?style=flat" alt="Code of Conduct"/></a>
-  <a href="https://snyk.io/test/github/cabaletta/baritone?targetFile=build.gradle"><img src="https://snyk.io/test/github/cabaletta/baritone/badge.svg?targetFile=build.gradle" alt="Known Vulnerabilities"/></a>
-  <a href="https://github.com/cabaletta/baritone/issues/"><img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat" alt="Contributions welcome"/></a>
-  <a href="https://github.com/cabaletta/baritone/issues/"><img src="https://img.shields.io/github/issues/cabaletta/baritone.svg" alt="Issues"/></a>
-  <a href="https://github.com/cabaletta/baritone/issues?q=is%3Aissue+is%3Aclosed"><img src="https://img.shields.io/github/issues-closed/cabaletta/baritone.svg" alt="GitHub issues-closed"/></a>
-  <a href="https://github.com/cabaletta/baritone/pulls/"><img src="https://img.shields.io/github/issues-pr/cabaletta/baritone.svg" alt="Pull Requests"/></a>
-  <a href="https://github.com/cabaletta/baritone/graphs/contributors/"><img src="https://img.shields.io/github/contributors/cabaletta/baritone.svg" alt="GitHub contributors"/></a>
-  <a href="https://github.com/cabaletta/baritone/commit/"><img src="https://img.shields.io/github/commits-since/cabaletta/baritone/v1.0.0.svg" alt="GitHub commits"/></a>
-  <img src="https://img.shields.io/github/languages/code-size/cabaletta/baritone.svg" alt="Code size"/>
-  <img src="https://img.shields.io/github/repo-size/cabaletta/baritone.svg" alt="GitHub repo size"/>
-  <img src="https://tokei.rs/b1/github/cabaletta/baritone?category=code&style=flat" alt="Lines of Code"/>
-  <img src="https://img.shields.io/badge/Badges-36-blue.svg" alt="yes"/>
-</p>
+A Minecraft pathfinder bot. This is a fork of [Baritone](https://github.com/cabaletta/baritone) by
+[leijurv](https://github.com/leijurv), tracking the Fabric branches of
+[MeteorDevelopment/baritone](https://github.com/MeteorDevelopment/baritone), with fixes aimed at the
+one thing anarchy servers ask of a pathfinder: travelling a very long way, unattended, without
+dying. Everything upstream Baritone does — `#goto`, `#mine`, `#follow`, `#build`, `#farm` — works
+here unchanged.
 
-<p align="center">
-  <a href="https://impactclient.net/"><img src="https://img.shields.io/badge/Impact%20integration-v1.2.14%20/%20v1.3.8%20/%20v1.4.6%20/%20v1.5.3%20/%20v1.6.3-brightgreen.svg" alt="Impact integration"/></a>
-  <a href="https://github.com/lambda-client/lambda"><img src="https://img.shields.io/badge/Lambda%20integration-v1.2.17-brightgreen.svg" alt="Lambda integration"/></a>
-  <a href="https://github.com/fr1kin/ForgeHax/"><img src="https://img.shields.io/badge/ForgeHax%20%22integration%22-scuffed-yellow.svg" alt="ForgeHax integration"/></a>
-  <a href="https://aristois.net/"><img src="https://img.shields.io/badge/Aristois%20add--on%20integration-v1.6.3-green.svg" alt="Aristois add-on integration"/></a>
-  <a href="https://rootnet.dev/"><img src="https://img.shields.io/badge/rootNET%20integration-v1.2.14-green.svg" alt="rootNET integration"/></a>
-  <a href="https://futureclient.net/"><img src="https://img.shields.io/badge/Future%20integration-v1.2.12%20%2F%20v1.3.6%20%2F%20v1.4.4-red" alt="Future integration"/></a>
-  <a href="https://rusherhack.org/"><img src="https://img.shields.io/badge/RusherHack%20integration-v1.2.14-green" alt="RusherHack integration"/></a>
-</p>
+The fixes are version independent, so every supported Minecraft version gets all of them.
 
-<p align="center">
-  <a href="http://forthebadge.com/"><img src="https://web.archive.org/web/20230604002050/https://forthebadge.com/images/badges/built-with-swag.svg" alt="forthebadge"/></a>
-  <a href="http://forthebadge.com/"><img src="https://web.archive.org/web/20230604002050/https://forthebadge.com/images/badges/mom-made-pizza-rolls.svg" alt="forthebadge"/></a>
-</p>
+## Supported versions
 
-A Minecraft pathfinder bot.
+| Minecraft | Branch                                              | Java | Release tag       |
+|-----------|-----------------------------------------------------|------|-------------------|
+| 1.21.4    | [`1.21.4`](https://github.com/dekrom/baritone/tree/1.21.4)   | 21   | `v<version>-1.21.4`  |
+| 1.21.5    | [`1.21.5`](https://github.com/dekrom/baritone/tree/1.21.5)   | 21   | `v<version>-1.21.5`  |
+| 1.21.8    | [`1.21.8`](https://github.com/dekrom/baritone/tree/1.21.8)   | 21   | `v<version>-1.21.8`  |
+| 1.21.11   | [`1.21.11`](https://github.com/dekrom/baritone/tree/1.21.11) | 21   | `v<version>-1.21.11` |
+| 26.1      | [`26.1`](https://github.com/dekrom/baritone/tree/26.1)       | 25   | `v<version>-26.1`    |
+| 26.2      | [`26.2`](https://github.com/dekrom/baritone/tree/26.2)       | 25   | `v<version>-26.2`    |
 
-Baritone is the pathfinding system used in [Impact](https://impactclient.net/) since 4.4. [Here's](https://www.youtube.com/watch?v=StquF69-_wI) a (very old!) video I made showing off what it can do.
+Each Minecraft version has its own branch and its own release. Fabric only.
 
-[**Baritone Discord Server**](http://discord.gg/s6fRBAUpmr)
+## Install
 
-**Quick download links:**
+1. Grab the jar for your Minecraft version from [Releases](https://github.com/dekrom/baritone/releases).
+   - `baritone-api-fabric-*.jar` — use this one if another mod (Meteor Client, an addon, your own
+     mod) drives Baritone through its API. This is what most people want.
+   - `baritone-standalone-fabric-*.jar` — everything exposed, for using Baritone on its own.
+   - `baritone-unoptimized-fabric-*.jar` — not obfuscated. Use it when reporting a bug so the stack
+     trace is readable.
+2. Drop it in `mods/` next to Fabric API.
+3. Type `#goto 1000 500` in chat.
 
-| Forge                                                                                                         | Fabric                                                                                                        |
-|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| [1.12.2 Forge](https://github.com/cabaletta/baritone/releases/download/v1.2.19/baritone-api-forge-1.2.19.jar) |                                                                                                               |
-| [1.16.5 Forge](https://github.com/cabaletta/baritone/releases/download/v1.6.5/baritone-api-forge-1.6.5.jar)   | [1.16.5 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.6.5/baritone-api-fabric-1.6.5.jar) |
-| [1.17.1 Forge](https://github.com/cabaletta/baritone/releases/download/v1.7.3/baritone-api-forge-1.7.3.jar)   | [1.17.1 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.7.3/baritone-api-fabric-1.7.3.jar) |
-| [1.18.2 Forge](https://github.com/cabaletta/baritone/releases/download/v1.8.6/baritone-api-forge-1.8.6.jar)   | [1.18.2 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.8.6/baritone-api-fabric-1.8.6.jar) |
-| [1.19.2 Forge](https://github.com/cabaletta/baritone/releases/download/v1.9.4/baritone-api-forge-1.9.4.jar)   | [1.19.2 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.9.4/baritone-api-fabric-1.9.4.jar) |
-| [1.19.3 Forge](https://github.com/cabaletta/baritone/releases/download/v1.9.1/baritone-api-forge-1.9.1.jar)   | [1.19.3 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.9.1/baritone-api-fabric-1.9.1.jar) |
-| [1.19.4 Forge](https://github.com/cabaletta/baritone/releases/download/v1.9.3/baritone-api-forge-1.9.3.jar)   | [1.19.4 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.9.3/baritone-api-fabric-1.9.3.jar) |
-| [1.20.1 Forge](https://github.com/cabaletta/baritone/releases/download/v1.10.1/baritone-api-forge-1.10.1.jar)   | [1.20.1 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.10.1/baritone-api-fabric-1.10.1.jar) |
-| [1.20.3 Forge](https://github.com/cabaletta/baritone/releases/download/v1.10.2/baritone-api-forge-1.10.2.jar)   | [1.20.3 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.10.2/baritone-api-fabric-1.10.2.jar) |
-| [1.20.4 Forge](https://github.com/cabaletta/baritone/releases/download/v1.10.2/baritone-api-forge-1.10.2.jar)   | [1.20.4 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.10.2/baritone-api-fabric-1.10.2.jar) |
-| [1.21.3 Forge](https://github.com/cabaletta/baritone/releases/download/v1.11.1/baritone-api-forge-1.11.1.jar)   | [1.21.3 Fabric](https://github.com/cabaletta/baritone/releases/download/v1.11.1/baritone-api-fabric-1.11.1.jar) |
+Verify your download against `checksums.txt` on the release. See [SETUP.md](SETUP.md) for anything
+more involved, and [USAGE.md](USAGE.md) for the chat commands.
 
-**Message for 2b2t players looking for 1.19/1.20 Baritone** If you like, please try the beta for Baritone Elytra for 2b2t, find it in #announcements of [the Baritone discord](http://discord.gg/s6fRBAUpmr). It supports 1.19.4 and 1.20.1, Forge or Fabric. If you have to see it to believe it, watch [this YouTube video](https://youtu.be/NnSlQi-68eQ).
+## What this fork changes
 
-**How to immediately get started:** Type `#goto 1000 500` in chat to go to x=1000 z=500. Type `#mine diamond_ore` to mine diamond ore. Type `#stop` to stop. For more, read [the usage page](USAGE.md) and/or watch this [tutorial playlist](https://www.youtube.com/playlist?list=PLnwnJ1qsS7CoQl9Si-RTluuzCo_4Oulpa). Also try `#elytra` for Elytra flying in the Nether using fireworks.
+### Elytra
 
-For other versions of Minecraft or more complicated situations or for development, see [Installation & setup](SETUP.md). Also consider just installing [Impact](https://impactclient.net/), which comes with Baritone and is easier to install than wrangling with version JSONs and zips. For 1.16.5, [click here](https://www.youtube.com/watch?v=_4eVJ9Qz2J8) and see description. Once Baritone is installed, look [here](USAGE.md) for instructions on how to use it. There's a [showcase video](https://youtu.be/CZkLXWo4Fg4) made by @Adovin#6313 on Baritone which I recommend.
+`#elytra` is the reason this fork exists. Upstream's implementation is good at flying a computed
+path and bad at everything around it: getting into the air, and getting out of trouble once the
+world stops matching the path.
 
-This project is an updated version of [MineBot](https://github.com/leijurv/MineBot/),
-the original version of the bot for Minecraft 1.8.9, rebuilt for 1.12.2 onwards. Baritone focuses on reliability and particularly performance (it's over [30x faster](https://github.com/cabaletta/baritone/pull/180#issuecomment-423822928) than MineBot at calculating paths).
+- **Takeoff from anywhere.** `elytraAutoJump` only knew how to walk to an overhang and step off it.
+  With no overhang in reach — most of the overworld, and most of a nether highway — it spent a
+  couple of seconds pathfinding and then told you to go find a cliff. It now falls back to jumping
+  on the spot, opening the elytra on the way up the way a vanilla double tap does, and lighting a
+  firework the instant it opens. Three ways it could previously stand still forever are fixed as
+  well, including landing at exactly y=31 in the nether, where the old fixed takeoff goal was
+  already satisfied where you stood.
+- **A survival fallback.** When the solver ran out of options it returned a heading with no pitch,
+  which in practice means holding the last pitch straight into the terrain. That is exactly the
+  case that matters: the world changed under the path, a wall appeared, something knocked you off
+  course. It now simulates the pitch range and flies whatever trajectory stays clear the longest,
+  preferring the one that ends higher, and forces a firework when nothing else buys enough time.
+- **Physics that match the server.** The flight simulation had drifted from
+  `LivingEntity.updateFallFlyingMovement`: hardcoded gravity instead of the `GRAVITY` attribute, no
+  Slow Falling, a cosine term from `Mth`'s lookup table with a factor vanilla does not have, a
+  missing divide-by-zero guard that produced `NaN` when looking straight up or down, and drag as
+  `float` where vanilla uses `double`. Every tick of error compounds across the horizon the solver
+  picks a pitch from.
+- **Recalculating instead of hoping.** A path node buried in terrain used to be noticed and
+  ignored. The segment is now recomputed, rejoining the existing path at the last node still in
+  open air.
+- **`elytraPathLookahead`** exposes how far ahead the solver looks for a node to aim at (was a
+  hardcoded 20). Higher cuts corners harder at firework speed.
+- **`elytraStandingTakeoff`** turns the standing takeoff on and off. On by default, capped at three
+  attempts so a bad spot cannot burn a stack of rockets.
 
-Have committed at least once a day from Aug 1, 2018, to Aug 1, 2019.
+### Pathfinding correctness
 
-1Leijurv3DWTrGAfmmiTphjhXLvQiHg7K2
+- Falls were charged one tick of gravity that never happens, because `velocity(0)` is zero.
+- Descending onto a block counted one block of fall too many; the fall ends on top of the block.
+- `GoalRunAway` folded its bounding box's max corner against the running minimum, so with more than
+  one position the box collapsed towards the minimum corner.
+- The dimension height check compared a y coordinate against a block count, letting the search
+  climb 64 blocks above the overworld build limit.
+- Waterlogged fences, walls, panes, bars, stairs and leaves were treated as plain water and walked
+  into.
+- `fullyPassable` listed the blocks you cannot jump through one at a time, so powder snow, honey,
+  berry bushes, dripstone and anything in `blocksToAvoid` were considered jumpable. The hitbox is
+  the same width in the air as on the ground.
+- A diagonal's second corner was tested for lava but its magma check read the first corner again.
+- `backtrackCostFavoringCoefficient` at 0 or below produced a non-positive action cost, which A\*
+  rejects, failing the whole calculation instead of favoring nothing.
+- `GoalGetToBlock` reported an ETA that never counted down to zero.
 
-# Getting Started
+### Pathing thread
 
-Here are some links to help to get started:
+- `ToolSet` read the live inventory from the calculation thread — a data race with the game thread —
+  and cached break speeds in a plain `HashMap`. The hotbar and selected slot are now snapshotted on
+  construction and the cache is concurrent.
+- `assumeWalkOnWater` was read off the settings mid-calculation, so flipping it made the cost
+  function inconsistent with the nodes already expanded. It is read once per `BlockStateInterface`.
+- `cancelRequested` is written by the game thread and read by the calculation thread, and was not
+  `volatile`.
+- `bestPathSoFar` allocated a `BetterBlockPos` per node on every tick a calculation was running,
+  before the cheap checks that almost always decide the outcome; `PathExecutor` built a whole
+  `CalculationContext` per tick to read two fields off it.
+
+### 26.2 only
+
+- Nether pathfinder chunk packing wrote solid sections as air, so `#elytra` planned paths straight
+  through terrain. The 26.2 port had replaced the removed `LevelChunkSection.SECTION_SIZE` (4096,
+  blocks per section) with a local `16`, and the all-solid fast path then memset 2 bytes instead of
+  512.
+- Baritone's threadpool threads are daemon threads. As of 26.2 the game waits on non-daemon threads
+  at shutdown and files a crash report if any are still alive.
+
+## Building
+
+Java 21 for the `1.21.x` branches, Java 25 for `26.x` (see the table above).
+
+```sh
+./gradlew build          # jars land in dist/, with checksums.txt
+./gradlew test
+```
+
+Tagging `v<version>-<mc>` on a version branch builds it and publishes the release.
+
+## Docs
 
 - [Features](FEATURES.md)
-
 - [Installation & setup](SETUP.md)
-
-- [API Javadocs](https://baritone.leijurv.com/)
-
-- [Settings](https://baritone.leijurv.com/baritone/api/Settings.html#field.detail)
-
 - [Usage (chat control)](USAGE.md)
+- [Settings](https://baritone.leijurv.com/baritone/api/Settings.html#field.detail)
+- [API Javadocs](https://baritone.leijurv.com/) (upstream)
 
-## Stars over time
+## API
 
-[![Stargazers over time](https://starchart.cc/cabaletta/baritone.svg)](https://starchart.cc/cabaletta/baritone)
-
-# API
-
-The API is heavily documented, you can find the Javadocs for the latest release [here](https://baritone.leijurv.com/).
-Please note that usage of anything located outside of the ``baritone.api`` package is not supported by the API release
-jar.
-
-Below is an example of basic usage for changing some settings, and then pathing to an X/Z goal.
+The API is heavily documented. Anything outside the `baritone.api` package is not supported by the
+API release jar.
 
 ```java
 BaritoneAPI.getSettings().allowSprint.value = true;
 BaritoneAPI.getSettings().primaryTimeoutMS.value = 2000L;
-
 BaritoneAPI.getProvider().getPrimaryBaritone().getCustomGoalProcess().setGoalAndPath(new GoalXZ(10000, 20000));
 ```
 
-# FAQ
+## Credits
 
-## Can I use Baritone as a library in my custom utility client?
+Baritone is by [leijurv](https://github.com/leijurv) and
+[its contributors](https://github.com/cabaletta/baritone/graphs/contributors); it grew out of
+[MineBot](https://github.com/leijurv/MineBot/). The Fabric branches this fork tracks are maintained
+by [MeteorDevelopment](https://github.com/MeteorDevelopment/baritone). The elytra pathfinder is
+[nether-pathfinder](https://github.com/babbaj/nether-pathfinder) by
+[babbaj](https://github.com/babbaj).
 
-That's what it's for, sure! (As long as usage complies with the LGPL 3.0 License)
+For help with Baritone itself, the [Baritone Discord](http://discord.gg/s6fRBAUpmr) is the place to
+ask. Issues with *this fork* belong [here](https://github.com/dekrom/baritone/issues).
 
-## How is it so fast?
+## License
 
-Magic. (Hours of [leijurv](https://github.com/leijurv/) enduring excruciating pain)
-
-### Additional Special Thanks To:
-
-![YourKit-Logo](https://www.yourkit.com/images/yklogo.png)
-
-YourKit supports open source projects with innovative and intelligent tools for monitoring and profiling Java and .NET applications.
-
-YourKit is the creator of the [YourKit Java Profiler](https://www.yourkit.com/java/profiler/), [YourKit .NET Profiler](https://www.yourkit.com/.net/profiler/), and [YourKit YouMonitor](https://www.yourkit.com/youmonitor/).
-
-We thank them for granting Baritone an OSS license so that we can make our software the best it can be.
-
-## Why is it called Baritone?
-
-It's named for FitMC's deep sultry voice.
+LGPL-3.0, same as upstream. See [LICENSE](LICENSE).
