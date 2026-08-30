@@ -35,9 +35,9 @@ import net.minecraft.world.item.enchantment.effects.EnchantmentAttributeEffect;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -61,6 +61,14 @@ public class ToolSet {
     private final LocalPlayer player;
 
     /**
+     * Snapshot of the hotbar taken on construction. The pathing thread must see one fixed cost function for
+     * the whole calculation, and it must not touch the live inventory off the main thread.
+     */
+    private final ItemStack[] hotbar = new ItemStack[9];
+
+    private final int selectedSlot;
+
+    /**
      * Used for evaluating the material cost of a tool.
      * see {@link #getMaterialCost(ItemStack)}
      * Prefer tools with lower material cost (lower index in this list).
@@ -75,8 +83,12 @@ public class ToolSet {
     );
 
     public ToolSet(LocalPlayer player) {
-        breakStrengthCache = new HashMap<>();
+        breakStrengthCache = new ConcurrentHashMap<>();
         this.player = player;
+        for (int i = 0; i < 9; i++) {
+            hotbar[i] = player.getInventory().getItem(i);
+        }
+        this.selectedSlot = player.getInventory().getSelectedSlot();
 
         if (Baritone.settings().considerPotionEffects.value) {
             double amplifier = potionAmplifier();
@@ -143,7 +155,7 @@ public class ToolSet {
         possible, this lets us make pathing depend on the actual tool to be used (if auto tool is disabled)
         */
         if (!Baritone.settings().autoTool.value && pathingCalculation) {
-            return player.getInventory().getSelectedSlot();
+            return selectedSlot;
         }
 
         int best = 0;
@@ -152,7 +164,7 @@ public class ToolSet {
         boolean bestSilkTouch = false;
         BlockState blockState = b.defaultBlockState();
         for (int i = 0; i < 9; i++) {
-            ItemStack itemStack = player.getInventory().getItem(i);
+            ItemStack itemStack = hotbar[i];
             if (!Baritone.settings().useSwordToMine.value && itemStack.is(ItemTags.SWORDS)) {
                 continue;
             }
@@ -188,7 +200,7 @@ public class ToolSet {
      * @return A double containing the destruction ticks with the best tool
      */
     private double getBestDestructionTime(Block b) {
-        ItemStack stack = player.getInventory().getItem(getBestSlot(b, false, true));
+        ItemStack stack = hotbar[getBestSlot(b, false, true)];
         return calculateSpeedVsBlock(stack, b.defaultBlockState()) * avoidanceMultiplier(b);
     }
 
