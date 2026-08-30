@@ -237,6 +237,11 @@ public interface MovementHelper extends ActionCosts, Helper {
         if (block instanceof AirBlock) { // early return for most common case
             return YES;
         }
+        // the player hitbox is the same width in the air as on the ground, so anything we can't walk
+        // through we can't jump through either (powder snow, honey, berry bushes, dripstone, blocksToAvoid...)
+        if (canWalkThroughBlockState(state) == NO) {
+            return NO;
+        }
         // exceptions - blocks that are isPassable true, but we can't actually jump through
         if (block instanceof BaseFireBlock
                 || block == Blocks.TRIPWIRE
