@@ -27,9 +27,11 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.dimension.DimensionType;
 
 import java.io.*;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -130,61 +132,74 @@ public final class CachedRegion implements ICachedRegion {
             }
             System.out.println("Saving region " + x + "," + z + " to disk " + path);
             Path regionFile = getRegionFile(path, this.x, this.z);
-            if (!Files.exists(regionFile)) {
-                Files.createFile(regionFile);
-            }
-            try (
-                    FileOutputStream fileOut = new FileOutputStream(regionFile.toFile());
-                    GZIPOutputStream gzipOut = new GZIPOutputStream(fileOut, 16384);
-                    DataOutputStream out = new DataOutputStream(gzipOut)
-            ) {
-                out.writeInt(CACHED_REGION_MAGIC);
-                for (int x = 0; x < 32; x++) {
-                    for (int z = 0; z < 32; z++) {
-                        CachedChunk chunk = this.chunks[x][z];
-                        if (chunk == null) {
-                            out.write(CHUNK_NOT_PRESENT);
-                        } else {
-                            out.write(CHUNK_PRESENT);
-                            byte[] chunkBytes = chunk.toByteArray();
-                            out.write(chunkBytes);
-                            // Messy, but fills the empty 0s that should be trailing to fill up the space.
-                            out.write(new byte[chunk.sizeInBytes - chunkBytes.length]);
-                        }
-                    }
-                }
-                for (int x = 0; x < 32; x++) {
-                    for (int z = 0; z < 32; z++) {
-                        if (chunks[x][z] != null) {
-                            for (int i = 0; i < 256; i++) {
-                                out.writeUTF(BlockUtils.blockToString(chunks[x][z].getOverview()[i].getBlock()));
+            // Write to a temp file and atomically rename it over the real one. The nether pathfinder
+            // (and a concurrently running load) reads these files while we save; an in-place rewrite
+            // hands them a truncated gzip stream and they treat the region as permanently unparseable.
+            // The pid keeps multiple game instances sharing this cache dir off each other's temp file;
+            // concurrent saves of the same region then resolve to last-complete-writer-wins.
+            Path tmpFile = regionFile.resolveSibling(regionFile.getFileName() + "." + ProcessHandle.current().pid() + ".tmp");
+            try {
+                try (
+                        FileOutputStream fileOut = new FileOutputStream(tmpFile.toFile());
+                        GZIPOutputStream gzipOut = new GZIPOutputStream(fileOut, 16384);
+                        DataOutputStream out = new DataOutputStream(gzipOut)
+                ) {
+                    out.writeInt(CACHED_REGION_MAGIC);
+                    for (int x = 0; x < 32; x++) {
+                        for (int z = 0; z < 32; z++) {
+                            CachedChunk chunk = this.chunks[x][z];
+                            if (chunk == null) {
+                                out.write(CHUNK_NOT_PRESENT);
+                            } else {
+                                out.write(CHUNK_PRESENT);
+                                byte[] chunkBytes = chunk.toByteArray();
+                                out.write(chunkBytes);
+                                // Messy, but fills the empty 0s that should be trailing to fill up the space.
+                                out.write(new byte[chunk.sizeInBytes - chunkBytes.length]);
                             }
                         }
                     }
-                }
-                for (int x = 0; x < 32; x++) {
-                    for (int z = 0; z < 32; z++) {
-                        if (chunks[x][z] != null) {
-                            Map<String, List<BlockPos>> locs = chunks[x][z].getRelativeBlocks();
-                            out.writeShort(locs.entrySet().size());
-                            for (Map.Entry<String, List<BlockPos>> entry : locs.entrySet()) {
-                                out.writeUTF(entry.getKey());
-                                out.writeShort(entry.getValue().size());
-                                for (BlockPos pos : entry.getValue()) {
-                                    out.writeByte((byte) (pos.getZ() << 4 | pos.getX()));
-                                    out.writeInt(pos.getY()-dimension.minY());
+                    for (int x = 0; x < 32; x++) {
+                        for (int z = 0; z < 32; z++) {
+                            if (chunks[x][z] != null) {
+                                for (int i = 0; i < 256; i++) {
+                                    out.writeUTF(BlockUtils.blockToString(chunks[x][z].getOverview()[i].getBlock()));
                                 }
                             }
                         }
                     }
-                }
-                for (int x = 0; x < 32; x++) {
-                    for (int z = 0; z < 32; z++) {
-                        if (chunks[x][z] != null) {
-                            out.writeLong(chunks[x][z].cacheTimestamp);
+                    for (int x = 0; x < 32; x++) {
+                        for (int z = 0; z < 32; z++) {
+                            if (chunks[x][z] != null) {
+                                Map<String, List<BlockPos>> locs = chunks[x][z].getRelativeBlocks();
+                                out.writeShort(locs.entrySet().size());
+                                for (Map.Entry<String, List<BlockPos>> entry : locs.entrySet()) {
+                                    out.writeUTF(entry.getKey());
+                                    out.writeShort(entry.getValue().size());
+                                    for (BlockPos pos : entry.getValue()) {
+                                        out.writeByte((byte) (pos.getZ() << 4 | pos.getX()));
+                                        out.writeInt(pos.getY()-dimension.minY());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for (int x = 0; x < 32; x++) {
+                        for (int z = 0; z < 32; z++) {
+                            if (chunks[x][z] != null) {
+                                out.writeLong(chunks[x][z].cacheTimestamp);
+                            }
                         }
                     }
                 }
+                try {
+                    Files.move(tmpFile, regionFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException ex) {
+                    Files.move(tmpFile, regionFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                // nothing to delete once the move succeeded; this is the failed-write path
+                Files.deleteIfExists(tmpFile);
             }
             hasUnsavedChanges = false;
             System.out.println("Saved region successfully");
