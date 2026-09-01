@@ -40,6 +40,7 @@ import sun.misc.Unsafe;
 import java.lang.ref.SoftReference;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,6 +75,9 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
 
     // Visible for access in BlockStateOctreeInterface
     final long context;
+    // Set under the write lock before freeContext; every native call checks it under the read lock
+    // so nothing can touch the context pointer after it has been freed.
+    private volatile boolean destroyed;
     private final long seed;
     // write locked operations
     private final ExecutorService writeExecutor = Executors.newSingleThreadExecutor();
@@ -99,11 +103,30 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
     }
 
     public boolean hasChunk(ChunkPos pos) {
-        return NetherPathfinder.hasChunkFromJava(this.context, pos.x(), pos.z());
+        readLock.lock();
+        try {
+            if (this.destroyed) {
+                return false;
+            }
+            return NetherPathfinder.hasChunkFromJava(this.context, pos.x(), pos.z());
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * Submits to the write executor, dropping the task if the context is already being torn down.
+     */
+    private void executeWrite(Runnable task) {
+        try {
+            this.writeExecutor.execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // destroy() has shut the executor down; the cache no longer matters
+        }
     }
 
     public void queueCacheCulling(int chunkX, int chunkZ, int maxDistanceBlocks) {
-        this.writeExecutor.execute(() -> {
+        this.executeWrite(() -> {
             writeLock.lock();
             try {
                 this.boi.chunkPtr = 0L;
@@ -116,7 +139,7 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
 
     public void queueForPacking(final LevelChunk chunkIn) {
         final SoftReference<LevelChunk> ref = new SoftReference<>(chunkIn);
-        this.writeExecutor.execute(() -> {
+        this.executeWrite(() -> {
             // TODO: Prioritize packing recent chunks and/or ones that the path goes through,
             //       and prune the oldest chunks per chunkPackerQueueMaxSize
             final LevelChunk chunk = ref.get();
@@ -135,7 +158,7 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
     }
 
     public void queueBlockUpdate(BlockChangeEvent event) {
-        this.writeExecutor.execute(() -> {
+        this.executeWrite(() -> {
             ChunkPos chunkPos = event.getChunkPos();
             // not inserting or deleting from the cache hashmap but it would still be bad for this function to race with itself
             writeLock.lock();
@@ -160,29 +183,40 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
         boolean generate = Baritone.settings().elytraPredictTerrain.value && this.dimension == Level.NETHER;
         Lock l = generate ? writeLock : readLock;
         ExecutorService exec = generate ? writeExecutor : readExecutor;
-        return CompletableFuture.supplyAsync(() -> {
-            l.lock();
-            try {
-                final PathSegment segment = NetherPathfinder.pathFind(
-                        this.context,
-                        adjustedSrc.getX(), adjustedSrc.getY(), adjustedSrc.getZ(),
-                        adjustedDst.getX(), adjustedDst.getY(), adjustedDst.getZ(),
-                        !Baritone.settings().elytraAllowTightSpaces.value, // atleastX4
-                        false, // refine
-                        10000, // timeoutMs
-                        !generate, // useAirIfChunkNotLoaded
-                        // TODO: Determine appropriate cost value
-                        8.0 // fakeChunkCost
-                );
-                if (segment == null) {
-                    throw new PathCalculationException("Path calculation failed");
-                }
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                l.lock();
+                try {
+                    if (this.destroyed) {
+                        throw new PathCalculationException("Pathfinder context destroyed");
+                    }
+                    final PathSegment segment = NetherPathfinder.pathFind(
+                            this.context,
+                            adjustedSrc.getX(), adjustedSrc.getY(), adjustedSrc.getZ(),
+                            adjustedDst.getX(), adjustedDst.getY(), adjustedDst.getZ(),
+                            !Baritone.settings().elytraAllowTightSpaces.value, // atleastX4
+                            false, // refine
+                            // The native cancel is a no-op (nether-pathfinder sets ctx->cancelFlag but the
+                            // search loop polls an unrelated global), so this timeout is the only bound on
+                            // how long destroy() can be stuck waiting for an in-flight search. Successful
+                            // segments return ~500ms after first progress; only hopeless searches run it out.
+                            3000, // timeoutMs
+                            !generate, // useAirIfChunkNotLoaded
+                            // TODO: Determine appropriate cost value
+                            8.0 // fakeChunkCost
+                    );
+                    if (segment == null) {
+                        throw new PathCalculationException("Path calculation failed");
+                    }
 
-                return new UnpackedSegment(UnpackedSegment.from(segment).collect().stream().map(pos -> pos.above(minY)), segment.finished);
-            } finally {
-                l.unlock();
-            }
-        }, exec);
+                    return new UnpackedSegment(UnpackedSegment.from(segment).collect().stream().map(pos -> pos.above(minY)), segment.finished);
+                } finally {
+                    l.unlock();
+                }
+            }, exec);
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            return CompletableFuture.failedFuture(new PathCalculationException("Pathfinder context destroyed"));
+        }
     }
 
     /**
@@ -201,7 +235,15 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
                             final double endX, final double endY, final double endZ) {
         final double adjustedStartY = startY - this.minY;
         final double adjustedEndY = endY - this.minY;
-        return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, startX, adjustedStartY, startZ, endX, adjustedEndY, endZ);
+        readLock.lock();
+        try {
+            if (this.destroyed) {
+                return false;
+            }
+            return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, startX, adjustedStartY, startZ, endX, adjustedEndY, endZ);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     /**
@@ -215,7 +257,15 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
     public boolean raytrace(final Vec3 start, final Vec3 end) {
         final Vec3 adjustedStart = start.subtract(0, this.minY, 0);
         final Vec3 adjustedEnd = end.subtract(0, this.minY, 0);
-        return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, adjustedStart.x, adjustedStart.y, adjustedStart.z, adjustedEnd.x, adjustedEnd.y, adjustedEnd.z);
+        readLock.lock();
+        try {
+            if (this.destroyed) {
+                return false;
+            }
+            return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, adjustedStart.x, adjustedStart.y, adjustedStart.z, adjustedEnd.x, adjustedEnd.y, adjustedEnd.z);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public boolean raytrace(final int count, final double[] src, final double[] dst, final int visibility) {
@@ -228,15 +278,23 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
             dst[i] -= this.minY;
         }
 
-        switch (visibility) {
-            case Visibility.ALL:
-                return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, false) == -1;
-            case Visibility.NONE:
-                return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, true) == -1;
-            case Visibility.ANY:
-                return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, true) != -1;
-            default:
-                throw new IllegalArgumentException("lol");
+        readLock.lock();
+        try {
+            if (this.destroyed) {
+                return false;
+            }
+            switch (visibility) {
+                case Visibility.ALL:
+                    return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, false) == -1;
+                case Visibility.NONE:
+                    return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, true) == -1;
+                case Visibility.ANY:
+                    return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, true) != -1;
+                default:
+                    throw new IllegalArgumentException("lol");
+            }
+        } finally {
+            readLock.unlock();
         }
     }
 
@@ -250,10 +308,27 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
             dst[i] -= this.minY;
         }
 
-        NetherPathfinder.raytrace(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, hitsOut, hitPosOut);
+        readLock.lock();
+        try {
+            if (this.destroyed) {
+                Arrays.fill(hitsOut, true);
+                return;
+            }
+            NetherPathfinder.raytrace(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, hitsOut, hitPosOut);
+        } finally {
+            readLock.unlock();
+        }
     }
 
+    /**
+     * Callers already hold the read lock (see {@link ElytraBehavior#solveAngles}) - this is the
+     * solver's innermost loop and taking it again per block would cost more than the call itself.
+     * {@link #destroyed} is set under the write lock, so it cannot flip while a caller is inside.
+     */
     public boolean passable(int x, int y, int z) {
+        if (this.destroyed) {
+            return false;
+        }
         return !this.boi.get0(x, y, z);
     }
 
@@ -274,7 +349,16 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
             e.printStackTrace();
         }
 
-        NetherPathfinder.freeContext(this.context);
+        // The executors are drained, but the solver and render threads still raytrace through this
+        // context; the write lock keeps freeContext from pulling the memory out from under them.
+        writeLock.lock();
+        try {
+            this.destroyed = true;
+            this.boi.chunkPtr = 0L;
+            NetherPathfinder.freeContext(this.context);
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     public long getSeed() {
