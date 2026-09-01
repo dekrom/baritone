@@ -196,6 +196,7 @@ public final class ElytraBehavior implements Helper {
             final long start = System.nanoTime();
             return this.path0(from, destinationFixed(), UnaryOperator.identity())
                     .thenRun(() -> {
+                        process.onPathCalculationSuccess();
                         final double distance = this.path.get(0).distanceTo(this.path.get(this.path.size() - 1));
                         if (this.completePath) {
                             logVerbose(String.format("Computed path (%.1f blocks in %.4f seconds)", distance, (System.nanoTime() - start) / 1e9d));
@@ -209,6 +210,7 @@ public final class ElytraBehavior implements Helper {
                             final Throwable cause = ex.getCause();
                             if (cause instanceof PathCalculationException) {
                                 logDirect("Failed to compute path to destination");
+                                process.onPathCalculationFailure();
                             } else {
                                 logUnhandledException(cause);
                             }

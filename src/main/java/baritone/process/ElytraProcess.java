@@ -64,8 +64,10 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static baritone.api.pathing.movement.ActionCosts.COST_INF;
 
@@ -82,6 +84,15 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
     private boolean allowAboveBuildLimit;
     private boolean allowAboveRoof;
     private final Semaphore npfSema = new Semaphore(1);
+    private CompletableFuture<Void> npfDestroyDone = CompletableFuture.completedFuture(null);
+    /**
+     * Bumped by every {@link #onLostControl}; a deferred engage queued while the old context was
+     * tearing down only fires if nothing else (a cancel, another goal) happened in the meantime.
+     */
+    private int engageEpoch;
+    // incremented from the pathfinder's worker threads, reset from wherever a path completes
+    private final AtomicInteger consecutivePathCalcFailures = new AtomicInteger();
+    private static final int PATH_CALC_FAILURES_BEFORE_RESET = 3;
 
     private static final int SHORT_LANDING_COLUMN_HEIGHT = 15;
     private static final int LONG_LANDING_COLUMN_HEIGHT = 39;
@@ -127,6 +138,13 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
     }
 
     public void onLostControl(boolean destroyNpf) {
+        // Path calculation whenComplete chains land here from the pathfinder's worker threads on
+        // failure; everything below (behavior handoff, semaphore, epoch) is render-thread state.
+        if (!ctx.minecraft().isSameThread()) {
+            ctx.minecraft().execute(() -> this.onLostControl(destroyNpf));
+            return;
+        }
+        this.engageEpoch++;
         this.state = State.START_FLYING; // TODO: null state?
         this.goingToLandingSpot = false;
         this.landingSpot = null;
@@ -139,15 +157,39 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         this.takeoffAirborneTicks = 0;
         this.walkOffImpossible = false;
         this.takeoffBoostPending = false;
-        destroyBehaviorAsync();
+        CompletableFuture<Void> behaviorGone = destroyBehaviorAsync();
         if (destroyNpf) {
-            destroyNpfContextAsync();
+            destroyNpfContextAsync(behaviorGone);
         }
     }
 
     private ElytraProcess(Baritone baritone) {
         super(baritone);
         baritone.getGameEventHandler().registerEventListener(this);
+    }
+
+    public void onPathCalculationSuccess() {
+        this.consecutivePathCalcFailures.set(0);
+    }
+
+    /**
+     * A pathfinder context that hit a transient failure while lazily parsing a cached region file
+     * never retries that region, so once one path calculation fails they usually all do. Persisting
+     * the context across new goals then turns any external re-command loop into an endless failure
+     * spam. After a few consecutive failures, throw the context away so the next engage starts clean.
+     */
+    public void onPathCalculationFailure() {
+        if (this.consecutivePathCalcFailures.incrementAndGet() < PATH_CALC_FAILURES_BEFORE_RESET) {
+            return;
+        }
+        if (ctx.player() != null && ctx.player().isFallFlying()) {
+            // resetting mid-air would disengage the elytra outright; if the failures persist,
+            // the grounded retries after landing will trip this
+            return;
+        }
+        this.consecutivePathCalcFailures.set(0);
+        logDirect("Path calculation failed " + PATH_CALC_FAILURES_BEFORE_RESET + " times in a row, discarding the pathfinder's chunk cache");
+        this.onLostControl();
     }
 
     public static IElytraProcess create(final Baritone baritone) {
@@ -584,14 +626,13 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         this.state = State.FLYING;
     }
 
-    private void destroyBehaviorAsync() {
+    private CompletableFuture<Void> destroyBehaviorAsync() {
         ElytraBehavior behavior = this.behavior;
-        if (behavior != null) {
-            this.behavior = null;
-            Baritone.getExecutor().execute(() -> {
-                behavior.destroy();
-            });
+        if (behavior == null) {
+            return CompletableFuture.completedFuture(null);
         }
+        this.behavior = null;
+        return CompletableFuture.runAsync(behavior::destroy, Baritone.getExecutor());
     }
 
     @Override
@@ -658,11 +699,36 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             return;
         }
         this.onLostControl(false);
+        if (this.npfContext == null) {
+            if (!this.npfSema.tryAcquire()) {
+                // The previous context is still tearing down on a worker thread, pinned by an
+                // uncancellable native path calculation. Blocking here would hang the render
+                // thread for its whole remaining duration, so finish this engage when the
+                // teardown completes instead - unless something else took over in the meantime.
+                final int epoch = this.engageEpoch;
+                this.npfDestroyDone.whenCompleteAsync((v, ex) -> {
+                    if (this.engageEpoch == epoch) {
+                        this.pathTo0(destination, appendDestination);
+                    }
+                }, ctx.minecraft()::execute);
+                return;
+            }
+            try {
+                this.npfContext = new NetherPathfinderContext(
+                        Baritone.settings().elytraNetherSeed.value,
+                        Baritone.settings().elytraUseCache.value ? baritone.getWorldProvider().getCurrentWorld().directory.resolve("cache") : null,
+                        ctx.world()
+                );
+            } catch (Throwable t) {
+                this.npfSema.release();
+                throw t;
+            }
+        }
         this.predictingTerrain = ctx.player().level().dimension() == Level.NETHER && Baritone.settings().elytraPredictTerrain.value;
         this.allowTight = Baritone.settings().elytraAllowTightSpaces.value;
         this.allowAboveBuildLimit = Baritone.settings().elytraAllowAboveBuildLimit.value;
         this.allowAboveRoof = Baritone.settings().elytraAllowAboveRoof.value;
-        this.behavior = new ElytraBehavior(this.baritone, this, getNpfContext(), destination, appendDestination);
+        this.behavior = new ElytraBehavior(this.baritone, this, this.npfContext, destination, appendDestination);
 
         if (ctx.world() != null) {
             this.repackChunks();
@@ -764,7 +830,9 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
     @Override
     public void onWorldEvent(WorldEvent event) {
         if (event.getWorld() != null && event.getState() == EventState.POST) {
-            // Exiting the world, just destroy
+            // Exiting the world, just destroy. A world change also invalidates any engage that was
+            // deferred while the old context tore down - its destination belongs to the old world.
+            this.engageEpoch++;
             destroyBehaviorAsync();
         }
     }
@@ -1006,26 +1074,22 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         }
     }
 
-    private NetherPathfinderContext getNpfContext() {
-        if(this.npfContext == null) {
-            npfSema.acquireUninterruptibly();
-            this.npfContext = new NetherPathfinderContext(
-                    Baritone.settings().elytraNetherSeed.value,
-                    Baritone.settings().elytraUseCache.value ? baritone.getWorldProvider().getCurrentWorld().directory.resolve("cache") : null,
-                    ctx.world()
-            );
-        }
-        return this.npfContext;
-    }
-
-    private void destroyNpfContextAsync() {
+    private void destroyNpfContextAsync(CompletableFuture<Void> afterBehaviorGone) {
         NetherPathfinderContext npf = this.npfContext;
         if (npf != null) {
             this.npfContext = null;
-            Baritone.getExecutor().execute(() -> {
-                npf.destroy();
-                npfSema.release();
-            });
+            // The solver and any still-queued path results keep making native calls until the
+            // behavior teardown completes, so the context must only be freed after it.
+            this.npfDestroyDone = afterBehaviorGone.handleAsync((v, ex) -> {
+                try {
+                    npf.destroy();
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                } finally {
+                    npfSema.release();
+                }
+                return null;
+            }, Baritone.getExecutor());
         }
     }
 }
