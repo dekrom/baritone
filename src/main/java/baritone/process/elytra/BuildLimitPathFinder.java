@@ -108,7 +108,8 @@ public class BuildLimitPathFinder implements IElytraPathFinder {
         final double deltaZ = destination.getZ() - start.getZ();
         final double distance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
 
-        final double scale = 8 / distance;
+        // a destination straight above/below would otherwise make the steps NaN
+        final double scale = distance > 1.0e-6 ? 8 / distance : 0;
         final double stepX = deltaX * scale;
         final double stepZ = deltaZ * scale;
 
@@ -234,7 +235,8 @@ public class BuildLimitPathFinder implements IElytraPathFinder {
                 boolean success = transition.second();
 
                 if(!success) {
-                    BetterBlockPos newDest = distanceXZ > 32 ? new BetterBlockPos(dst) : new BetterBlockPos(dst.getX(), playerCtx.world().getMaxY(), dst.getZ());
+                    // distanceXZ is squared
+                    BetterBlockPos newDest = distanceXZ > 32 * 32 ? new BetterBlockPos(dst) : new BetterBlockPos(dst.getX(), playerCtx.world().getMaxY(), dst.getZ());
                     var directPath = generateDirectPath(new BetterBlockPos(src), newDest, 0, 2);
                     return CompletableFuture.completedFuture(new UnpackedSegment(directPath.first().stream(), directPath.second()));
                 }
