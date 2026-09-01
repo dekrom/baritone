@@ -86,6 +86,20 @@ world stops matching the path.
   hardcoded 20). Higher cuts corners harder at firework speed.
 - **`elytraStandingTakeoff`** turns the standing takeoff on and off. On by default, capped at three
   attempts so a bad spot cannot burn a stack of rockets.
+- **Cancelling could crash the client.** The nether pathfinder's native context was freed once its
+  own executors had drained, but the solver and the game thread raytrace through it outside those
+  executors, and the octree interface caches a raw pointer into it. Running one of those against
+  freed memory is a segfault, not an exception. It is freed under the lock they hold now, and every
+  native call is fenced behind a flag that fails safe.
+
+### Chunk cache
+
+- Region files were rewritten in place, from the cache save thread, while everything else was
+  reading them. A read that landed mid-rewrite got a truncated gzip stream and threw away a
+  512×512 region's worth of cached terrain. Saves are written to a temp file and renamed over the
+  old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
+  nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
+  rest of the flight.
 
 ### Pathfinding correctness
 
@@ -126,6 +140,18 @@ world stops matching the path.
   512.
 - Baritone's threadpool threads are daemon threads. As of 26.2 the game waits on non-daemon threads
   at shutdown and files a crash report if any are still alive.
+- **Cancelling `#elytra` froze the game.** 26.2 keeps one pathfinder context alive across engages,
+  and re-engaging blocked the game thread on the old one until it was freed. A path calculation
+  cannot be interrupted — nether-pathfinder's `cancel()` sets a flag its search loop does not read —
+  so the client hung for whatever the in-flight calculation had left, up to ten seconds. The engage
+  is deferred onto the teardown now, and the calculation timeout is three seconds.
+- **The endless `Failed to compute path to destination`.** That same persistent context is fed
+  Baritone's region cache, and a region it fails to parse is never retried, so one bad read leaves
+  a permanent hole in its world and every later calculation fails against it. Three consecutive
+  failures discard the context so the next attempt starts from a clean cache; skipped while flying,
+  where a reset would drop the elytra.
+- The above-build-limit fallback divided by a horizontal distance of zero, making every step of a
+  straight-up path `NaN`, and compared a squared distance against an unsquared 32.
 
 ## Building
 
