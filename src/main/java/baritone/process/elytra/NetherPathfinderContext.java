@@ -51,6 +51,9 @@ public final class NetherPathfinderContext {
 
     // Visible for access in BlockStateOctreeInterface
     final long context;
+    // Published before freeContext so that a path result still sitting in the game thread's task
+    // queue turns into a no-op instead of dereferencing memory that is already gone.
+    private volatile boolean destroyed;
     private final long seed;
     private final ExecutorService executor;
 
@@ -61,11 +64,25 @@ public final class NetherPathfinderContext {
     }
 
     public boolean hasChunk(ChunkPos pos) {
+        if (this.destroyed) {
+            return false;
+        }
         return NetherPathfinder.hasChunkFromJava(this.context, pos.x, pos.z);
     }
 
+    /**
+     * Submits to the executor, dropping the task if the context is already being torn down.
+     */
+    private void executeTask(Runnable task) {
+        try {
+            this.executor.execute(task);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // destroy() has shut the executor down; the cache no longer matters
+        }
+    }
+
     public void queueCacheCulling(int chunkX, int chunkZ, int maxDistanceBlocks, BlockStateOctreeInterface boi) {
-        this.executor.execute(() -> {
+        this.executeTask(() -> {
             synchronized (this.cullingLock) {
                 boi.chunkPtr = 0L;
                 NetherPathfinder.cullFarChunks(this.context, chunkX, chunkZ, maxDistanceBlocks);
@@ -75,7 +92,7 @@ public final class NetherPathfinderContext {
 
     public void queueForPacking(final LevelChunk chunkIn) {
         final SoftReference<LevelChunk> ref = new SoftReference<>(chunkIn);
-        this.executor.execute(() -> {
+        this.executeTask(() -> {
             // TODO: Prioritize packing recent chunks and/or ones that the path goes through,
             //       and prune the oldest chunks per chunkPackerQueueMaxSize
             final LevelChunk chunk = ref.get();
@@ -87,7 +104,7 @@ public final class NetherPathfinderContext {
     }
 
     public void queueBlockUpdate(BlockChangeEvent event) {
-        this.executor.execute(() -> {
+        this.executeTask(() -> {
             ChunkPos chunkPos = event.getChunkPos();
             long ptr = NetherPathfinder.getChunkPointer(this.context, chunkPos.x, chunkPos.z);
             if (ptr == 0) return; // this shouldn't ever happen
@@ -101,21 +118,28 @@ public final class NetherPathfinderContext {
     }
 
     public CompletableFuture<PathSegment> pathFindAsync(final BlockPos src, final BlockPos dst) {
-        return CompletableFuture.supplyAsync(() -> {
-            final PathSegment segment = NetherPathfinder.pathFind(
-                    this.context,
-                    src.getX(), src.getY(), src.getZ(),
-                    dst.getX(), dst.getY(), dst.getZ(),
-                    true,
-                    false,
-                    10000,
-                    !Baritone.settings().elytraPredictTerrain.value
-            );
-            if (segment == null) {
-                throw new PathCalculationException("Path calculation failed");
-            }
-            return segment;
-        }, this.executor);
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                if (this.destroyed) {
+                    throw new PathCalculationException("Pathfinder context destroyed");
+                }
+                final PathSegment segment = NetherPathfinder.pathFind(
+                        this.context,
+                        src.getX(), src.getY(), src.getZ(),
+                        dst.getX(), dst.getY(), dst.getZ(),
+                        true,
+                        false,
+                        10000,
+                        !Baritone.settings().elytraPredictTerrain.value
+                );
+                if (segment == null) {
+                    throw new PathCalculationException("Path calculation failed");
+                }
+                return segment;
+            }, this.executor);
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            return CompletableFuture.failedFuture(new PathCalculationException("Pathfinder context destroyed"));
+        }
     }
 
     /**
@@ -132,6 +156,9 @@ public final class NetherPathfinderContext {
      */
     public boolean raytrace(final double startX, final double startY, final double startZ,
                             final double endX, final double endY, final double endZ) {
+        if (this.destroyed) {
+            return false;
+        }
         return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, startX, startY, startZ, endX, endY, endZ);
     }
 
@@ -144,10 +171,16 @@ public final class NetherPathfinderContext {
      * @return {@code true} if there is visibility between the points
      */
     public boolean raytrace(final Vec3 start, final Vec3 end) {
+        if (this.destroyed) {
+            return false;
+        }
         return NetherPathfinder.isVisible(this.context, NetherPathfinder.CACHE_MISS_SOLID, start.x, start.y, start.z, end.x, end.y, end.z);
     }
 
     public boolean raytrace(final int count, final double[] src, final double[] dst, final int visibility) {
+        if (this.destroyed) {
+            return false;
+        }
         switch (visibility) {
             case Visibility.ALL:
                 return NetherPathfinder.isVisibleMulti(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, false) == -1;
@@ -161,6 +194,10 @@ public final class NetherPathfinderContext {
     }
 
     public void raytrace(final int count, final double[] src, final double[] dst, final boolean[] hitsOut, final double[] hitPosOut) {
+        if (this.destroyed) {
+            java.util.Arrays.fill(hitsOut, true);
+            return;
+        }
         NetherPathfinder.raytrace(this.context, NetherPathfinder.CACHE_MISS_SOLID, count, src, dst, hitsOut, hitPosOut);
     }
 
@@ -168,7 +205,11 @@ public final class NetherPathfinderContext {
         NetherPathfinder.cancel(this.context);
     }
 
-    public void destroy() {
+    /**
+     * Stops all background work and waits for it to finish. The native context is still alive
+     * afterwards - see {@link #free()}.
+     */
+    public void shutdown() {
         this.cancel();
         // Ignore anything that was queued up, just shutdown the executor
         this.executor.shutdownNow();
@@ -178,7 +219,16 @@ public final class NetherPathfinderContext {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+    }
 
+    /**
+     * Frees the native context. Must be called on the game thread, and only after {@link #shutdown()}
+     * and the solver have been drained: that leaves the game thread as the only possible caller, so
+     * nothing can be inside a native call while the memory goes away. A path result that completed
+     * before the shutdown is queued on the game thread ahead of this and still sees a live context.
+     */
+    public void free() {
+        this.destroyed = true;
         NetherPathfinder.freeContext(this.context);
     }
 
