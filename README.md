@@ -86,6 +86,19 @@ world stops matching the path.
   hardcoded 20). Higher cuts corners harder at firework speed.
 - **`elytraStandingTakeoff`** turns the standing takeoff on and off. On by default, capped at three
   attempts so a bad spot cannot burn a stack of rockets.
+- **Cancelling could crash the client.** The nether pathfinder's native context was freed as soon
+  as its own executors had drained, but a finished path calculation hands its result to the game
+  thread, and that hand-off could still be sitting in the game thread's queue. Running it against
+  freed memory is a segfault, not an exception. The context is freed on the game thread now, after
+  everything else that touches it is gone, and every native call is fenced behind a flag that fails
+  safe.
+
+### Chunk cache
+
+- Region files were rewritten in place, from the cache save thread, while everything else was
+  reading them. A read that landed mid-rewrite got a truncated gzip stream and threw away a
+  512×512 region's worth of cached terrain. Saves are written to a temp file and renamed over the
+  old one, so a reader sees either the previous region or the new one.
 
 ### Pathfinding correctness
 
@@ -126,6 +139,16 @@ world stops matching the path.
   512.
 - Baritone's threadpool threads are daemon threads. As of 26.2 the game waits on non-daemon threads
   at shutdown and files a crash report if any are still alive.
+- 26.2 keeps one nether pathfinder context alive across engages and feeds it Baritone's own region
+  cache, which is where the elytra freeze and the endless "Failed to compute path to destination"
+  came from. Re-engaging blocked the game thread on the old context, which cannot be interrupted;
+  and a region the pathfinder failed to parse is never retried, so one bad read poisoned every
+  later calculation. The engage is deferred instead of blocking, and the context is discarded after
+  three consecutive failures. The other branches build a fresh context per flight and are not
+  affected.
+- The above-build-limit fallback, which only exists on 26.2, divided by a horizontal distance of
+  zero — making every step of a straight-up path `NaN` — and compared a squared distance against an
+  unsquared 32.
 
 ## Building
 
