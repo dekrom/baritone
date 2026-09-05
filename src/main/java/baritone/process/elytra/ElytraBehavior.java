@@ -227,7 +227,18 @@ public final class ElytraBehavior implements Helper {
             final List<BetterBlockPos> after = upToIncl.isPresent() ? this.path.subList(upToIncl.getAsInt() + 1, this.path.size()) : Collections.emptyList();
             final boolean complete = this.completePath;
 
-            return this.path0(ctx.playerFeet(), upToIncl.isPresent() ? fixDestination(this.path.get(upToIncl.getAsInt())) : destinationFixed(), segment -> segment.append(after.stream(), complete || (segment.isFinished() && !upToIncl.isPresent())))
+            return this.path0(ctx.playerFeet(), upToIncl.isPresent() ? fixDestination(this.path.get(upToIncl.getAsInt())) : destinationFixed(), segment -> {
+                        if (!upToIncl.isPresent() || !segment.isFinished()) {
+                            // Either this went all the way to the destination and speaks for itself, or the
+                            // search ran out of time short of the rejoin node. Tacking the old tail onto a
+                            // segment that never reached it would leave a blind jump in the path, straight
+                            // through whatever lies between, that no obstacle check can ever fix: every
+                            // recomputation ends the same way, and the solver just circles the last node it
+                            // can reach. Leave the path unfinished instead and continue from where it got to.
+                            return segment;
+                        }
+                        return segment.append(after.stream(), complete);
+                    })
                     .whenComplete((result, ex) -> {
                         this.recalculating = false;
                         if (ex != null) {
