@@ -181,8 +181,14 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
         final BlockPos adjustedSrc = src.below(minY);
         final BlockPos adjustedDst = dst.below(minY);
         boolean generate = Baritone.settings().elytraPredictTerrain.value && this.dimension == Level.NETHER;
-        Lock l = generate ? writeLock : readLock;
-        ExecutorService exec = generate ? writeExecutor : readExecutor;
+        // pathFind is always a writer, regardless of terrain prediction: it lazily parses baritone cache
+        // regions into chunkCache (gated only by checkedRegions, see nether-pathfinder parseBaritoneRegion)
+        // and generates terrain. It therefore has to exclude the getChunkOrDefault/raytrace lookups the
+        // solvers run under the read lock. Running it under the read lock instead lets those inserts (and the
+        // rehash they trigger) race a concurrent lookup's bucket walk, corrupting the map -> SIGSEGV in
+        // getChunkOrDefault. The prediction flag now only selects useAirIfChunkNotLoaded.
+        Lock l = writeLock;
+        ExecutorService exec = writeExecutor;
         try {
             return CompletableFuture.supplyAsync(() -> {
                 l.lock();
