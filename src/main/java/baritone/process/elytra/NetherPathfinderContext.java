@@ -342,17 +342,36 @@ public final class NetherPathfinderContext implements IElytraPathFinder {
         NetherPathfinder.cancel(this.context);
     }
 
+    // Generous relative to the 3000ms native pathFind timeout, which does not bound findAir's BFS or the
+    // region-file IO a search can trigger. A normal teardown finishes well inside this; overshooting it
+    // means a search is genuinely wedged in native code and this context is abandoned rather than freed.
+    private static final long TEARDOWN_TIMEOUT_MS = 6000;
+
     public void destroy() {
         this.cancel();
         // Ignore anything that was queued up, just shutdown the executor
         this.readExecutor.shutdownNow();
         this.writeExecutor.shutdownNow();
 
+        boolean terminated;
         try {
-            while (!this.readExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {}
-            while (!this.writeExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {}
+            // The native cancel is a no-op, so shutdownNow only drops queued tasks; an in-flight pathFind
+            // runs to its own timeout. Bound the wait: a wedged native call must not pin this teardown
+            // forever, because that never releases npfSema and silently kills every later engage.
+            terminated = this.readExecutor.awaitTermination(TEARDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    & this.writeExecutor.awaitTermination(TEARDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            terminated = false;
+        }
+
+        if (!terminated) {
+            // A search is still running in native code. freeContext now would be a use-after-free, and the
+            // write lock is held by that same wedged search (pathFind is a writer), so taking it would
+            // deadlock. Abandon (leak) this context instead: mark it destroyed so nothing new calls in, and
+            // let the next engage build a fresh one. The leak is bounded to one context per wedged search.
+            this.destroyed = true;
+            return;
         }
 
         // The executors are drained, but the solver and render threads still raytrace through this
