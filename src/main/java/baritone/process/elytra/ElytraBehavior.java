@@ -647,6 +647,11 @@ public final class ElytraBehavior implements Helper {
         this.simulationLine = null;
         this.aimPos = null;
 
+        // ctx AND context???? :DDD
+        // Before the path check: everything the solver simulates goes through passable(), and the lava escape
+        // solves without a path
+        this.bsi = new BlockStateInterface(ctx);
+
         final List<BetterBlockPos> path = this.pathManager.getPath();
         if (path.isEmpty()) {
             return;
@@ -655,8 +660,6 @@ public final class ElytraBehavior implements Helper {
             return;
         }
 
-        // ctx AND context???? :DDD
-        this.bsi = new BlockStateInterface(ctx);
         this.pathManager.tick();
 
         final int playerNear = this.pathManager.getNear();
@@ -670,7 +673,8 @@ public final class ElytraBehavior implements Helper {
      * Called by {@link baritone.process.ElytraProcess#onTick(boolean, boolean)} when the process is in control and the player is flying
      */
     public void tick() {
-        if (this.pathManager.getPath().isEmpty()) {
+        final boolean inLava = ctx.player().isInLava();
+        if (this.pathManager.getPath().isEmpty() && !inLava) {
             return;
         }
 
@@ -684,6 +688,10 @@ public final class ElytraBehavior implements Helper {
         if (ctx.player().verticalCollision) {
             logVerbose("vbonk");
         }
+        if (this.bsi == null) {
+            // onTick0 has not run yet (a path calculation has held the lock every tick so far), nothing to solve against
+            return;
+        }
 
         final SolverContext solverContext = this.new SolverContext(false);
         this.solveNextTick = true;
@@ -696,7 +704,6 @@ public final class ElytraBehavior implements Helper {
             solution = this.pendingSolution;
         }
 
-        final boolean inLava = ctx.player().isInLava();
         if (inLava) {
             baritone.getInputOverrideHandler().setInputForceState(Input.JUMP, true);
         }
@@ -719,7 +726,8 @@ public final class ElytraBehavior implements Helper {
                 solution.context.start,
                 solution.goingTo,
                 solution.context.boost.isBoosted(),
-                solution.forceUseFirework || inLava
+                solution.forceUseFirework || inLava,
+                inLava
         );
     }
 
@@ -736,6 +744,9 @@ public final class ElytraBehavior implements Helper {
     }
 
     private Solution solveAngles(final SolverContext context) {
+        if (context.ignoreLava) {
+            return this.solveLavaEscape(context);
+        }
         final NetherPath path = context.path;
         final int playerNear = landingMode ? path.size() - 1 : context.playerNear;
         final Vec3 start = context.start;
@@ -824,6 +835,34 @@ public final class ElytraBehavior implements Helper {
     }
 
     /**
+     * In lava the elytra is inert: vanilla moves us by the fluid rules whenever we are in one, glide or not, so
+     * the only thrust is the rocket, at a fraction of its usual push, and the pool is walled in a few blocks
+     * away on every side. Aiming at the path would spend the rocket pushing against basalt. The way out is up:
+     * the steepest climb the simulation keeps clear, and a rocket, every time. Works without a path, since a
+     * lava takeoff may still be waiting for its first one.
+     */
+    private Solution solveLavaEscape(final SolverContext context) {
+        final NetherPath path = context.path;
+        // yaw is irrelevant to a vertical rocket; face where we are going so that the climb comes out pointed
+        // along the path once the normal solver takes over
+        final Vec3 towards = path.isEmpty()
+                ? Vec3.atCenterOf(this.destination)
+                : path.getVec(Math.min(context.playerNear + 1, path.size() - 1));
+        final float yaw = RotationUtils.calcRotationFromVec3d(context.start, towards, ctx.playerRotations()).getYaw();
+        final int ticks = Math.max(5, Baritone.settings().elytraSimulationTicks.value);
+        // simulate with a rocket burning whether or not one is yet: the escape needs one, and tick() lights it
+        final int ticksBoosted = context.boost.isBoosted() ? Math.max(1, context.boost.getGuaranteedBoostTicks()) : 10;
+        final int ticksBoostDelay = context.boost.isBoosted() ? 0 : 2;
+        final PitchResult best = this.solveSurvivalPitch(context, yaw, ticks, ticksBoosted, ticksBoostDelay);
+        if (best == null) {
+            return null; // cancelled by the game thread
+        }
+        this.simulationLine = best.steps;
+        final Vec3 last = best.steps.get(best.steps.size() - 1);
+        return new Solution(context, new Rotation(yaw, best.pitch), context.start.add(last), true, true);
+    }
+
+    /**
      * Last resort when no pitch reaches the path (e.g. the terrain changed and the goal is now walled off):
      * fly the pitch that stays collision-free the longest, biased towards climbing, so that the path
      * recalculation has time to catch up. If an impact is imminent and a firework would provably extend
@@ -843,13 +882,14 @@ public final class ElytraBehavior implements Helper {
         }
 
         final int survivedTicks = best.steps.size() - 1;
-        // No pitch keeps us clear for the whole horizon: if a rocket lit now would provably do better, light
-        // one. This used to wait until the impact was a dozen ticks out, which from the top of a climb out of
-        // a hole meant falling most of the way back in before doing anything about it.
+        // No pitch keeps us clear for the whole horizon, or we are in lava: if a rocket lit now would provably
+        // do better, light one. This used to wait until the impact was a dozen ticks out, which from the top of
+        // a climb out of a hole meant falling most of the way back in before doing anything about it.
         final boolean impactAhead = survivedTicks < ticks;
-        if (impactAhead && !context.boost.isBoosted() && context.hasFireworks) {
+        if ((impactAhead || context.ignoreLava) && !context.boost.isBoosted() && context.hasFireworks) {
             final PitchResult boosted = this.solveSurvivalPitch(context, yaw, ticks, 10, 2);
-            if (boosted != null && boosted.steps.size() > best.steps.size() + 2) {
+            if (boosted != null && (boosted.steps.size() > best.steps.size() + 2
+                    || (context.ignoreLava && boosted.steps.size() >= best.steps.size()))) {
                 final Vec3 last = boosted.steps.get(boosted.steps.size() - 1);
                 this.simulationLine = boosted.steps;
                 return new Solution(context, new Rotation(yaw, boosted.pitch), context.start.add(last), true, true);
@@ -896,12 +936,13 @@ public final class ElytraBehavior implements Helper {
         return best == null || score > best.dot ? new PitchResult(pitch, score, steps) : best;
     }
 
-    private void tickUseFireworks(final Vec3 start, final Vec3 goingTo, final boolean isBoosted, final boolean forceUseFirework) {
-        if (this.remainingSetBackTicks > 0) {
+    private void tickUseFireworks(final Vec3 start, final Vec3 goingTo, final boolean isBoosted, final boolean forceUseFirework, final boolean inLava) {
+        // neither the setback delay nor a landing in progress is a reason to keep burning
+        if (this.remainingSetBackTicks > 0 && !inLava) {
             logDebug("waiting for elytraFireworkSetbackUseDelay: " + this.remainingSetBackTicks);
             return;
         }
-        if (this.landingMode) {
+        if (this.landingMode && !inLava) {
             return;
         }
         final boolean useOnDescend = !Baritone.settings().elytraConserveFireworks.value || ctx.player().position().y < goingTo.y + 5;
