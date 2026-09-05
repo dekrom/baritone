@@ -158,6 +158,19 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
         }
     }
 
+    /**
+     * The rotation this tick's movement packet is going to carry: the one {@link #onPlayerUpdate} applies for the
+     * current target, or the player's own if there is no target or the target leaves the rotation alone. Anything
+     * else sent this tick that carries a look of its own (a use packet) has to match it exactly, because the
+     * server-side movement checks compare the two.
+     */
+    public Rotation getRotationForThisTick() {
+        if (this.target == null || this.target.mode == Target.Mode.NONE) {
+            return new Rotation(ctx.player().getYRot(), ctx.player().getXRot());
+        }
+        return this.processor.peekRotation(this.target.rotation);
+    }
+
     public Optional<Rotation> getEffectiveRotation() {
         if (Baritone.settings().freeLook.value) {
             return Optional.ofNullable(this.serverRotation);
