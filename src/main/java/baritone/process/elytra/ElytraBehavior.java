@@ -500,10 +500,13 @@ public final class ElytraBehavior implements Helper {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        this.context.shutdown();
-        // Freeing on the game thread orders the free behind any path result already queued on it,
-        // and with both executors drained nothing else can be inside a native call.
-        ctx.minecraft().execute(this.context::free);
+        if (this.context.shutdown()) {
+            // Freeing on the game thread orders the free behind any path result already queued on it,
+            // and with both executors drained nothing else can be inside a native call.
+            ctx.minecraft().execute(this.context::free);
+        }
+        // otherwise a search is still wedged in native code: freeing under it would be a use-after-free, so
+        // the context is abandoned. The leak is bounded to one context per wedged search.
     }
 
     public void repackChunks() {
