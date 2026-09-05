@@ -107,6 +107,12 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
     private int takeoffAirborneTicks;
     private boolean walkOffImpossible;
     private boolean takeoffBoostPending;
+    /**
+     * Ticks since a takeoff opened the elytra, or {@code -1} outside a takeoff. Only the server can shut an
+     * elytra again, so one that is shut while we are still in the air this soon after opening it is a takeoff
+     * the server refused, which is worth telling the user apart from one that merely didn't get anywhere.
+     */
+    private int takeoffOpenedTicksAgo = -1;
 
     @Override
     public void onLostControl() {
@@ -121,6 +127,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         this.takeoffAirborneTicks = 0;
         this.walkOffImpossible = false;
         this.takeoffBoostPending = false;
+        this.takeoffOpenedTicksAgo = -1;
         destroyBehaviorAsync();
     }
 
@@ -240,6 +247,10 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
                 this.state = State.START_FLYING;
                 this.takeoffStallTicks = 0;
                 this.takeoffBoostPending = true;
+                this.takeoffOpenedTicksAgo = 0;
+            }
+            if (this.takeoffOpenedTicksAgo >= 0) {
+                this.takeoffOpenedTicksAgo++;
             }
             behavior.landingMode = this.state == State.LANDING;
             this.goal = null;
@@ -262,6 +273,15 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             baritone.getInputOverrideHandler().clearAllKeys();
             this.onLostControl();
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
+
+        if (this.takeoffOpenedTicksAgo >= 0) {
+            // we opened the elytra and it is shut again: on the ground that is a takeoff that didn't get
+            // anywhere, in the air it is the server refusing the glide, and the takeoff rocket with it
+            if (!ctx.player().onGround()) {
+                logDirect("The server closed the elytra " + this.takeoffOpenedTicksAgo + " ticks after takeoff.");
+            }
+            this.takeoffOpenedTicksAgo = -1;
         }
 
         if (this.state == State.FLYING || this.state == State.START_FLYING) {
@@ -487,9 +507,12 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             return false;
         }
         ctx.player().connection.send(new ServerboundPlayerCommandPacket(ctx.player(), ServerboundPlayerCommandPacket.Action.START_FALL_FLYING));
-        // no speed and a block and a half of air underneath: the boost can't wait for the solver to ask for one
-        // on the next tick. the elytra is open as far as the client is concerned, so the rocket attaches to us
-        this.takeoffBoostPending = !this.behavior.useFireworkForTakeoff();
+        // The rocket goes next tick, once the solver has aimed. A vanilla client cannot use an item in the tick
+        // it starts gliding (its use packets go out before its glide packet, while the elytra is still shut),
+        // and the use packet carries a look that has to match that tick's movement packet, which the solver
+        // has not decided yet. The tick costs nothing: the rocket takes a round trip to show up regardless.
+        this.takeoffBoostPending = true;
+        this.takeoffOpenedTicksAgo = 0;
         return true;
     }
 
