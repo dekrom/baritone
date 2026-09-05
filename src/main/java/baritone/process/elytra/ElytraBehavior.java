@@ -841,7 +841,11 @@ public final class ElytraBehavior implements Helper {
         }
 
         final int survivedTicks = best.steps.size() - 1;
-        if (survivedTicks < ticks && survivedTicks <= 12 && !context.boost.isBoosted() && context.hasFireworks) {
+        // No pitch keeps us clear for the whole horizon: if a rocket lit now would provably do better, light
+        // one. This used to wait until the impact was a dozen ticks out, which from the top of a climb out of
+        // a hole meant falling most of the way back in before doing anything about it.
+        final boolean impactAhead = survivedTicks < ticks;
+        if (impactAhead && !context.boost.isBoosted() && context.hasFireworks) {
             final PitchResult boosted = this.solveSurvivalPitch(context, yaw, ticks, 10, 2);
             if (boosted != null && boosted.steps.size() > best.steps.size() + 2) {
                 final Vec3 last = boosted.steps.get(boosted.steps.size() - 1);
@@ -862,12 +866,17 @@ public final class ElytraBehavior implements Helper {
         final float currentPitch = ctx.playerRotations().getPitch();
 
         PitchResult best = null;
-        // scan the climbing side (negative pitch) first; new walls are usually escapable from above
+        // scan the climbing side (negative pitch) first; new walls are usually escapable from above. With a
+        // rocket burning, don't settle for the first pitch that survives: take the one that ends highest. The
+        // boost is the one chance to get above whatever is boxing us in, and straight up is where that is most
+        // likely to be clear (the hole we just took off from, a crevice, the hollow beside a lava pond).
+        final boolean preferHeight = ticksBoosted > 0;
         for (float pitch = currentPitch; pitch >= -90; pitch -= 3) {
             if (Thread.interrupted()) return null;
             best = this.betterSurvival(context, direction, pitch, ticks, ticksBoosted, ticksBoostDelay, best);
-            if (best != null && best.steps.size() - 1 >= ticks) return best;
+            if (!preferHeight && best != null && best.steps.size() - 1 >= ticks) return best;
         }
+        if (best != null && best.steps.size() - 1 >= ticks) return best;
         for (float pitch = currentPitch + 3; pitch <= 90; pitch += 3) {
             if (Thread.interrupted()) return null;
             best = this.betterSurvival(context, direction, pitch, ticks, ticksBoosted, ticksBoostDelay, best);
