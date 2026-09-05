@@ -86,6 +86,43 @@ world stops matching the path.
   hardcoded 20). Higher cuts corners harder at firework speed.
 - **`elytraStandingTakeoff`** turns the standing takeoff on and off. On by default, capped at three
   attempts so a bad spot cannot burn a stack of rockets.
+- **Taking off from a hole.** Where a nether flight ends when the rockets run out is where the next
+  one starts, and in the basalt deltas that is a crevice with walls a couple of blocks away on every
+  side and open sky straight up. The standing takeoff asked for a path from your feet, and the
+  pathfinder starts every path from the nearest 4×4×4 cube of air, found by a search that walks
+  straight through walls — from a hole, very often a cube on the far side of one. The rocket flew at
+  it, hit the wall and dropped back in. The path now starts from the first clear cube straight
+  overhead. With a rocket burning, the survival solver takes the pitch that ends highest rather than
+  the first one that survives, and it forces a rocket as soon as an impact is anywhere in its
+  horizon instead of a dozen ticks out.
+- **The takeoff rocket was never accepted.** It was lit in the same tick the elytra opened, which no
+  vanilla client can do — its use packet goes out before the glide packet — and it carried the
+  camera's rotation while that tick's movement packet carried the takeoff aim, two looks the
+  server's movement checks compare. The rocket goes the tick after now, every use packet carries
+  the rotation the movement packet will, and the solver assumes a rocket it has just lit is burning
+  instead of planning an unboosted glide into the nearest wall while the entity is in transit. A
+  takeoff the server refuses is reported as such.
+- **Lava.** An elytra opens in lava but does nothing there — vanilla moves you by the fluid rules
+  — so the rocket is the only thrust, and it was aimed at a path that leads through the pond's wall
+  while the landing logic asked for a new path from inside the pool twenty times a second. In lava
+  the process now swims up, opens the elytra, aims straight up and lights rockets until it is out;
+  the landing search waits.
+- **Unfinished segments.** A recomputation around an obstacle that ran out of time short of its
+  rejoin node had the old path stitched on anyway, leaving a blind jump through whatever lay
+  between; every recomputation ended the same way, and the solver circled next to a path drawn
+  through solid ground. An unfinished segment now stands on its own and is continued from where the
+  search got to.
+- **A cache that disagrees with the world.** Everything the solver does runs against the
+  pathfinder's copy of the world, and when that copy was wrong nothing noticed, because the
+  raytraces look at the same copy. A chunk packet the client discarded was packed as a real chunk
+  made of air, and a chunk whose packing was missed stayed missed until a cancel. Discarded chunks
+  are skipped now, and a collision, a "we are inside a block" verdict or a failed recomputation
+  re-reads the chunks around the player.
+- **A hung teardown.** The pathfinder context's teardown waited without limit for a native search
+  that the cancel cannot interrupt. On 26.2, where the teardown hands back the semaphore the next
+  engage needs, one hung search silently killed every later `#elytra` for the session; elsewhere it
+  pinned a thread and leaked the context. The wait is bounded now, and a context whose search is
+  still wedged after it is abandoned rather than freed underneath it.
 - **Cancelling could crash the client.** The nether pathfinder's native context was freed once its
   own executors had drained, but the solver and the game thread raytrace through it outside those
   executors, and the octree interface caches a raw pointer into it. Running one of those against
@@ -152,6 +189,10 @@ world stops matching the path.
   where a reset would drop the elytra.
 - The above-build-limit fallback divided by a horizontal distance of zero, making every step of a
   straight-up path `NaN`, and compared a squared distance against an unsquared 32.
+- **Segfault in `getChunkOrDefault`.** The native path calculation ran under the read lock whenever
+  terrain prediction was off, on the theory that it only reads the cache. With `elytraUseCache` it
+  also parses region files into it, and an insert that rehashes the map under the solvers' lookups
+  is heap corruption. A path calculation is always a writer now.
 
 ## Building
 
