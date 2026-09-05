@@ -205,20 +205,37 @@ public final class NetherPathfinderContext {
         NetherPathfinder.cancel(this.context);
     }
 
+    // Generous relative to the 10000ms native pathFind timeout, which does not bound findAir's BFS. A normal
+    // teardown finishes well inside this; overshooting it means a search is genuinely wedged in native code
+    // and this context is abandoned rather than freed.
+    private static final long TEARDOWN_TIMEOUT_MS = 15000;
+
     /**
      * Stops all background work and waits for it to finish. The native context is still alive
      * afterwards - see {@link #free()}.
+     *
+     * @return {@code false} if a search was still running in native code when the wait ran out. The context
+     *         has been marked destroyed so that nothing new calls into it, but it must not be freed: that
+     *         search still holds it, and freeing under it would be a use-after-free. Abandon (leak) it instead.
      */
-    public void shutdown() {
+    public boolean shutdown() {
         this.cancel();
         // Ignore anything that was queued up, just shutdown the executor
         this.executor.shutdownNow();
 
+        boolean terminated;
         try {
-            while (!this.executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {}
+            // The native cancel is a no-op, so shutdownNow only drops queued tasks; an in-flight pathFind
+            // runs to its own timeout. Bound the wait: a wedged native call must not pin this thread forever.
+            terminated = this.executor.awaitTermination(TEARDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            terminated = false;
         }
+        if (!terminated) {
+            this.destroyed = true;
+        }
+        return terminated;
     }
 
     /**
