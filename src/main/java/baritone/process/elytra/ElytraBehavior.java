@@ -87,6 +87,7 @@ public final class ElytraBehavior implements Helper {
     public final PathManager pathManager;
     private final ElytraProcess process;
 
+    private static final int FIREWORK_COOLDOWN_TICKS = 10;
     /**
      * Remaining cool-down ticks between firework usage
      */
@@ -105,9 +106,11 @@ public final class ElytraBehavior implements Helper {
      * Updated every time a firework is automatically used
      */
     private int minimumBoostTicks;
-
-    private boolean deployedFireworkLastTick;
-    private final int[] nextTickBoostCounter;
+    /**
+     * Whether the entity of the last rocket we lit has been seen attached to us. Only for the verbose log:
+     * a rocket that never shows up is one the server ignored.
+     */
+    private boolean fireworkSeenSinceLit = true;
 
     private BlockStateInterface bsi;
     public final BetterBlockPos destination;
@@ -134,7 +137,6 @@ public final class ElytraBehavior implements Helper {
         this.destination = new BetterBlockPos(destination);
         this.appendDestination = appendDestination;
         this.solverExecutor = Executors.newSingleThreadExecutor();
-        this.nextTickBoostCounter = new int[2];
 
         this.npfContext = npf;
 
@@ -624,11 +626,17 @@ public final class ElytraBehavior implements Helper {
         // Certified mojang employee incident
         if (this.remainingFireworkTicks > 0) {
             this.remainingFireworkTicks--;
+            if (this.remainingFireworkTicks == 0 && !this.fireworkSeenSinceLit) {
+                logVerbose("the rocket lit " + FIREWORK_COOLDOWN_TICKS + " ticks ago never showed up, the server ignored it");
+            }
         }
         if (this.remainingSetBackTicks > 0) {
             this.remainingSetBackTicks--;
         }
-        if (!this.getAttachedFirework().isPresent()) {
+        if (this.getAttachedFirework().isPresent()) {
+            this.fireworkSeenSinceLit = true;
+        } else if (this.remainingFireworkTicks <= 0) {
+            // nothing burning, and nothing lit recently enough for its entity to still be on its way from the server
             this.minimumBoostTicks = 0;
         }
 
@@ -685,11 +693,6 @@ public final class ElytraBehavior implements Helper {
             solution = this.pendingSolution;
         } else {
             solution = this.solveAngles(solverContext);
-        }
-
-        if (this.deployedFireworkLastTick) {
-            this.nextTickBoostCounter[solverContext.boost.isBoosted() ? 1 : 0]++;
-            this.deployedFireworkLastTick = false;
         }
 
         final boolean inLava = ctx.player().isInLava();
@@ -952,10 +955,25 @@ public final class ElytraBehavior implements Helper {
             logDirect("no fireworks");
             return false;
         }
-        ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
+        // The use packet carries a look of its own, read off the player as it is built, and the server-side
+        // movement check compares it with the look in this tick's movement packet: the rotation LookBehavior
+        // is about to apply for the solver's target, not what the player is facing right now. Face that for
+        // the duration of the click so the two agree; the look behavior sets or restores the real rotation
+        // later in the tick regardless.
+        final Rotation wire = this.baritone.getLookBehavior().getRotationForThisTick();
+        final float yaw = ctx.player().getYRot();
+        final float pitch = ctx.player().getXRot();
+        ctx.player().setYRot(wire.getYaw());
+        ctx.player().setXRot(wire.getPitch());
+        try {
+            ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
+        } finally {
+            ctx.player().setYRot(yaw);
+            ctx.player().setXRot(pitch);
+        }
         this.minimumBoostTicks = 10 * (1 + getFireworkBoost(ctx.player().getItemInHand(InteractionHand.MAIN_HAND)).orElse(0));
-        this.remainingFireworkTicks = 10;
-        this.deployedFireworkLastTick = true;
+        this.remainingFireworkTicks = FIREWORK_COOLDOWN_TICKS;
+        this.fireworkSeenSinceLit = false;
         return true;
     }
 
@@ -1012,12 +1030,15 @@ public final class ElytraBehavior implements Helper {
             }
             this.hasFireworks = fireworks;
 
-            final Integer fireworkTicksExisted;
-            if (async && ElytraBehavior.this.deployedFireworkLastTick) {
-                final int[] counter = ElytraBehavior.this.nextTickBoostCounter;
-                fireworkTicksExisted = counter[1] > counter[0] ? 0 : null;
-            } else {
-                fireworkTicksExisted = ElytraBehavior.this.getAttachedFirework().map(e -> e.tickCount).orElse(null);
+            Integer fireworkTicksExisted = ElytraBehavior.this.getAttachedFirework().map(e -> e.tickCount).orElse(null);
+            if (fireworkTicksExisted == null && ElytraBehavior.this.remainingFireworkTicks > 0) {
+                // A rocket we lit within the cooldown whose entity the server hasn't shown us yet: a round trip,
+                // which on a busy server is several ticks. Solve as though it had been burning since we lit it.
+                // The boost follows whatever we aim at once it arrives, and planning an unboosted trajectory in
+                // the meantime - a shallow glide, since without thrust nothing else gets anywhere - is what
+                // points a takeoff rocket at the nearest wall. If it never shows up the assumption expires with
+                // the cooldown. The end-of-tick solve is for the next tick, whose cooldown is one lower.
+                fireworkTicksExisted = FIREWORK_COOLDOWN_TICKS - ElytraBehavior.this.remainingFireworkTicks + (async ? 1 : 0);
             }
             this.boost = new FireworkBoost(fireworkTicksExisted, ElytraBehavior.this.minimumBoostTicks);
 
