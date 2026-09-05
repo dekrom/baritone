@@ -115,6 +115,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
      * the server refused, which is worth telling the user apart from one that merely didn't get anywhere.
      */
     private int takeoffOpenedTicksAgo = -1;
+    private boolean lavaPathRequested;
 
     @Override
     public void onLostControl() {
@@ -130,6 +131,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         this.walkOffImpossible = false;
         this.takeoffBoostPending = false;
         this.takeoffOpenedTicksAgo = -1;
+        this.lavaPathRequested = false;
         destroyBehaviorAsync();
     }
 
@@ -177,6 +179,10 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
 
         this.behavior.onTick();
 
+        if (!ctx.player().isFallFlying() && ctx.player().isInLava()) {
+            return lavaTakeoff();
+        }
+
         if (calcFailed) {
             if (this.state == State.LOCATE_JUMP || this.state == State.GET_TO_JUMP) {
                 return standingTakeoff();
@@ -186,8 +192,11 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
         }
 
+        // No landing business while in lava. The solver is busy climbing out, and every path the landing search
+        // asks for from in here starts inside the pool and fails at once, which used to re-issue one every tick.
+        final boolean inLava = ctx.player().isInLava();
         boolean safetyLanding = false;
-        if (ctx.player().isFallFlying() && shouldLandForSafety()) {
+        if (ctx.player().isFallFlying() && !inLava && shouldLandForSafety()) {
             if (Baritone.settings().elytraAllowEmergencyLand.value) {
                 logDirect("Emergency landing - almost out of elytra durability or fireworks");
                 safetyLanding = true;
@@ -195,7 +204,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
                 logDirect("almost out of elytra durability or fireworks, but I'm going to continue since elytraAllowEmergencyLand is false");
             }
         }
-        if (ctx.player().isFallFlying() && this.state != State.LANDING && (this.behavior.pathManager.isComplete() || safetyLanding)) {
+        if (ctx.player().isFallFlying() && !inLava && this.state != State.LANDING && (this.behavior.pathManager.isComplete() || safetyLanding)) {
             final BetterBlockPos last = this.behavior.pathManager.path.getLast();
             if (last != null && (ctx.player().position().distanceToSqr(last.getCenter()) < (48 * 48) || safetyLanding) && (!goingToLandingSpot || (safetyLanding && this.landingSpot == null))) {
                 logDirect("Path complete, picking a nearby safe landing spot...");
@@ -471,6 +480,33 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             onLostControl();
         });
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+    }
+
+    /**
+     * We are in lava and the elytra is not open. Whatever the ground states were doing can wait: an elytra opens
+     * in lava (vanilla only refuses in water), and a rocket lit looking straight up is what gets us out. Swimming
+     * is far too slow, and since vanilla moves us by the fluid rules while we are in one, glide or not, the
+     * rocket is the only thrust there is and keeps a fraction of its usual push. Pointing it at the pool's wall
+     * would spend all of that on basalt, so once the elytra is open {@link ElytraBehavior} aims straight up and
+     * keeps lighting rockets until we are out.
+     */
+    private PathingCommand lavaTakeoff() {
+        baritone.getPathingBehavior().secretInternalSegmentCancel();
+        baritone.getInputOverrideHandler().clearAllKeys();
+        // swimming up: slow, but it also lifts us off the pool floor, without which the elytra can't open
+        baritone.getInputOverrideHandler().setInputForceState(Input.JUMP, true);
+        if (this.behavior.pathManager.getPath().isEmpty() && !this.lavaPathRequested) {
+            // nothing to fly along once we're out; the takeoff states would have computed this
+            this.lavaPathRequested = true;
+            final BetterBlockPos feet = ctx.playerFeet();
+            final BetterBlockPos exit = takeoffExit(feet);
+            this.behavior.pathManager.pathToDestination(exit != null ? exit : feet);
+        }
+        if (!ctx.player().onGround() && openElytra()) {
+            this.state = State.START_FLYING;
+            this.takeoffStallTicks = 0;
+        }
+        return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
     }
 
     /**
