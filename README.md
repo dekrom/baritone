@@ -86,19 +86,57 @@ world stops matching the path.
   hardcoded 20). Higher cuts corners harder at firework speed.
 - **`elytraStandingTakeoff`** turns the standing takeoff on and off. On by default, capped at three
   attempts so a bad spot cannot burn a stack of rockets.
-- **Cancelling could crash the client.** The nether pathfinder's native context was freed as soon
-  as its own executors had drained, but a finished path calculation hands its result to the game
-  thread, and that hand-off could still be sitting in the game thread's queue. Running it against
-  freed memory is a segfault, not an exception. The context is freed on the game thread now, after
-  everything else that touches it is gone, and every native call is fenced behind a flag that fails
-  safe.
+- **Taking off from a hole.** Where a nether flight ends when the rockets run out is where the next
+  one starts, and in the basalt deltas that is a crevice with walls a couple of blocks away on every
+  side and open sky straight up. The standing takeoff asked for a path from your feet, and the
+  pathfinder starts every path from the nearest 4×4×4 cube of air, found by a search that walks
+  straight through walls — from a hole, very often a cube on the far side of one. The rocket flew at
+  it, hit the wall and dropped back in. The path now starts from the first clear cube straight
+  overhead. With a rocket burning, the survival solver takes the pitch that ends highest rather than
+  the first one that survives, and it forces a rocket as soon as an impact is anywhere in its
+  horizon instead of a dozen ticks out.
+- **The takeoff rocket was never accepted.** It was lit in the same tick the elytra opened, which no
+  vanilla client can do — its use packet goes out before the glide packet — and it carried the
+  camera's rotation while that tick's movement packet carried the takeoff aim, two looks the
+  server's movement checks compare. The rocket goes the tick after now, every use packet carries
+  the rotation the movement packet will, and the solver assumes a rocket it has just lit is burning
+  instead of planning an unboosted glide into the nearest wall while the entity is in transit. A
+  takeoff the server refuses is reported as such.
+- **Lava.** An elytra opens in lava but does nothing there — vanilla moves you by the fluid rules
+  — so the rocket is the only thrust, and it was aimed at a path that leads through the pond's wall
+  while the landing logic asked for a new path from inside the pool twenty times a second. In lava
+  the process now swims up, opens the elytra, aims straight up and lights rockets until it is out;
+  the landing search waits.
+- **Unfinished segments.** A recomputation around an obstacle that ran out of time short of its
+  rejoin node had the old path stitched on anyway, leaving a blind jump through whatever lay
+  between; every recomputation ended the same way, and the solver circled next to a path drawn
+  through solid ground. An unfinished segment now stands on its own and is continued from where the
+  search got to.
+- **A cache that disagrees with the world.** Everything the solver does runs against the
+  pathfinder's copy of the world, and when that copy was wrong nothing noticed, because the
+  raytraces look at the same copy. A chunk packet the client discarded was packed as a real chunk
+  made of air, and a chunk whose packing was missed stayed missed until a cancel. Discarded chunks
+  are skipped now, and a collision, a "we are inside a block" verdict or a failed recomputation
+  re-reads the chunks around the player.
+- **A hung teardown.** The pathfinder context's teardown waited without limit for a native search
+  that the cancel cannot interrupt. On 26.2, where the teardown hands back the semaphore the next
+  engage needs, one hung search silently killed every later `#elytra` for the session; elsewhere it
+  pinned a thread and leaked the context. The wait is bounded now, and a context whose search is
+  still wedged after it is abandoned rather than freed underneath it.
+- **Cancelling could crash the client.** The nether pathfinder's native context was freed once its
+  own executors had drained, but the solver and the game thread raytrace through it outside those
+  executors, and the octree interface caches a raw pointer into it. Running one of those against
+  freed memory is a segfault, not an exception. It is freed under the lock they hold now, and every
+  native call is fenced behind a flag that fails safe.
 
 ### Chunk cache
 
 - Region files were rewritten in place, from the cache save thread, while everything else was
   reading them. A read that landed mid-rewrite got a truncated gzip stream and threw away a
   512×512 region's worth of cached terrain. Saves are written to a temp file and renamed over the
-  old one, so a reader sees either the previous region or the new one.
+  old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
+  nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
+  rest of the flight.
 
 ### Pathfinding correctness
 
@@ -139,16 +177,22 @@ world stops matching the path.
   512.
 - Baritone's threadpool threads are daemon threads. As of 26.2 the game waits on non-daemon threads
   at shutdown and files a crash report if any are still alive.
-- 26.2 keeps one nether pathfinder context alive across engages and feeds it Baritone's own region
-  cache, which is where the elytra freeze and the endless "Failed to compute path to destination"
-  came from. Re-engaging blocked the game thread on the old context, which cannot be interrupted;
-  and a region the pathfinder failed to parse is never retried, so one bad read poisoned every
-  later calculation. The engage is deferred instead of blocking, and the context is discarded after
-  three consecutive failures. The other branches build a fresh context per flight and are not
-  affected.
-- The above-build-limit fallback, which only exists on 26.2, divided by a horizontal distance of
-  zero — making every step of a straight-up path `NaN` — and compared a squared distance against an
-  unsquared 32.
+- **Cancelling `#elytra` froze the game.** 26.2 keeps one pathfinder context alive across engages,
+  and re-engaging blocked the game thread on the old one until it was freed. A path calculation
+  cannot be interrupted — nether-pathfinder's `cancel()` sets a flag its search loop does not read —
+  so the client hung for whatever the in-flight calculation had left, up to ten seconds. The engage
+  is deferred onto the teardown now, and the calculation timeout is three seconds.
+- **The endless `Failed to compute path to destination`.** That same persistent context is fed
+  Baritone's region cache, and a region it fails to parse is never retried, so one bad read leaves
+  a permanent hole in its world and every later calculation fails against it. Three consecutive
+  failures discard the context so the next attempt starts from a clean cache; skipped while flying,
+  where a reset would drop the elytra.
+- The above-build-limit fallback divided by a horizontal distance of zero, making every step of a
+  straight-up path `NaN`, and compared a squared distance against an unsquared 32.
+- **Segfault in `getChunkOrDefault`.** The native path calculation ran under the read lock whenever
+  terrain prediction was off, on the theory that it only reads the cache. With `elytraUseCache` it
+  also parses region files into it, and an insert that rehashes the map under the solvers' lookups
+  is heap corruption. A path calculation is always a writer now.
 
 ## Building
 
