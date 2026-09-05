@@ -245,6 +245,7 @@ public final class ElytraBehavior implements Helper {
                             final Throwable cause = ex.getCause();
                             if (cause instanceof PathCalculationException) {
                                 logDirect("Failed to recompute segment");
+                                repackNearPlayer("segment recomputation failed");
                             } else {
                                 logUnhandledException(cause);
                             }
@@ -279,6 +280,7 @@ public final class ElytraBehavior implements Helper {
                             final Throwable cause = ex.getCause();
                             if (cause instanceof PathCalculationException) {
                                 logDirect("Failed to compute next segment");
+                                repackNearPlayer("next segment computation failed");
                                 if (pathStart.distToCenterSqr(ctx.player().position()) < 16 * 16) {
                                     logVerbose("Player is near the segment start, therefore repeating this calculation is pointless. Marking as complete");
                                     completePath = true;
@@ -354,7 +356,10 @@ public final class ElytraBehavior implements Helper {
                 // the node closest to us is now inside a block, so the terrain changed since this path was computed
                 final BetterBlockPos feet = ctx.playerFeet();
                 if (!ElytraBehavior.this.passable(feet.x, feet.y, feet.z, false)) {
-                    return; // we're inside a block ourselves, recalculating from here can't succeed
+                    // we're inside a block ourselves, recalculating from here can't succeed. while flying that
+                    // means the cache is wrong about where we are, so refresh it
+                    repackNearPlayer("the cache has us inside a block");
+                    return;
                 }
                 int rejoin = rangeEndExcl - 1;
                 while (rejoin > rangeStartIncl && !ElytraBehavior.this.passable(path.get(rejoin).x, path.get(rejoin).y, path.get(rejoin).z, false)) {
@@ -501,9 +506,53 @@ public final class ElytraBehavior implements Helper {
 
     public void onChunkEvent(ChunkEvent event) {
         if (event.isPostPopulate() && this.npfContext != null) {
-            final LevelChunk chunk = ctx.world().getChunk(event.getX(), event.getZ());
-            npfContext.queueForPacking(chunk);
+            // A chunk packet the client discarded (outside its view range) still raises this event, and the
+            // world hands back its shared empty chunk for it. Packing that would record a chunk of pure air as
+            // real terrain, and the path would then be routed straight through whatever is actually there.
+            final LevelChunk chunk = ctx.world().getChunkSource().getChunk(event.getX(), event.getZ(), false);
+            if (chunk != null && !chunk.isEmpty()) {
+                npfContext.queueForPacking(chunk);
+            }
         }
+    }
+
+    // Wall-clock so that it also bounds the repacks queued from the recomputation callbacks between ticks
+    private static final long REPACK_NEAR_COOLDOWN_MS = 2000;
+    private long lastRepackNearMs;
+
+    /**
+     * Re-reads the chunks around the player into the pathfinder's cache. Everything the solver and the
+     * obstacle checks do runs against that cache, so if it disagrees with the world (a chunk whose packing was
+     * missed, a stale region from the on-disk cache that the live chunk never replaced) the solver aims at
+     * terrain it thinks is air and nothing in here notices - the raytraces look at the same cache. This is the
+     * fix that cancelling and re-engaging used to apply by accident, through {@code repackChunks}.
+     */
+    private void repackNearPlayer(final String why) {
+        if (!ctx.minecraft().isSameThread()) {
+            ctx.minecraft().execute(() -> this.repackNearPlayer(why));
+            return;
+        }
+        if (ctx.player() == null || ctx.world() == null || this.npfContext == null) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (now - this.lastRepackNearMs < REPACK_NEAR_COOLDOWN_MS) {
+            return;
+        }
+        this.lastRepackNearMs = now;
+        final ChunkPos center = ctx.player().chunkPosition();
+        final ChunkSource chunkSource = ctx.world().getChunkSource();
+        int packed = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                final LevelChunk chunk = chunkSource.getChunk(center.x() + dx, center.z() + dz, false);
+                if (chunk != null && !chunk.isEmpty()) {
+                    npfContext.queueForPacking(chunk);
+                    packed++;
+                }
+            }
+        }
+        logVerbose("Repacking " + packed + " chunks around the player: " + why);
     }
 
     public void onBlockChange(BlockChangeEvent event) {
@@ -620,6 +669,8 @@ public final class ElytraBehavior implements Helper {
 
         if (ctx.player().horizontalCollision) {
             logVerbose("hbonk");
+            // the simulation never flies into anything it knows about, so this is something it didn't
+            repackNearPlayer("hit something the cache didn't know about");
         }
         if (ctx.player().verticalCollision) {
             logVerbose("vbonk");
