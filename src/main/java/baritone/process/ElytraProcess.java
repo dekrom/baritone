@@ -95,6 +95,12 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
      * How many ledges to walk towards before concluding that walking off one is never going to happen.
      */
     private static final int MAX_WALK_OFF_ATTEMPTS = 2;
+    /**
+     * How far above our feet to look for the first clear 4x4x4 cube when taking off from where we stand. A
+     * duration-1 rocket lifts a stationary player around 25 blocks straight up before it dies, so a cube any
+     * further up is out of reach of a vertical takeoff anyway.
+     */
+    private static final int TAKEOFF_MAX_EXIT_HEIGHT = 32;
     private int takeoffStallTicks;
     private int standingTakeoffs;
     private int walkOffAttempts;
@@ -424,10 +430,16 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         if (this.standingTakeoffs++ == 0) {
             logDirect("No spot to jump off from, taking off from here instead.");
         }
+        // The path starts from the first clear cube straight above us, which is where a climb on the takeoff
+        // rocket comes out. In a basalt delta crevice or the hollow beside a lava pond the walls are a couple of
+        // blocks away on every side, and up is the one direction that is reliably clear. Left to itself the
+        // pathfinder would start from the nearest clear cube to our feet, and its search for one ignores walls:
+        // from a hole that is very often a cube on the far side of one, which nothing here could ever reach.
+        final BetterBlockPos exit = takeoffExit(feet);
         // the elytra path has to exist before we leave the ground: the behavior does nothing without one, and the
         // handful of ticks between opening the elytra and hitting the ground is no time to compute one
         this.state = State.PAUSE;
-        this.behavior.pathManager.pathToDestination(feet).whenComplete((result, ex) -> {
+        this.behavior.pathManager.pathToDestination(exit != null ? exit : feet).whenComplete((result, ex) -> {
             if (ex == null) {
                 this.state = State.TAKEOFF_JUMP;
                 return;
@@ -435,6 +447,32 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             onLostControl();
         });
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+    }
+
+    /**
+     * The centre of the first 4x4x4 cube of air straight above {@code feet}, aligned the way the elytra
+     * pathfinder aligns its nodes, or {@code null} if there is none within {@link #TAKEOFF_MAX_EXIT_HEIGHT}.
+     */
+    private BetterBlockPos takeoffExit(BetterBlockPos feet) {
+        // the pathfinder is nether only and its world stops at the roof
+        final int limit = Math.min(feet.y + TAKEOFF_MAX_EXIT_HEIGHT, 128 - 4);
+        final int ox = feet.x & ~3;
+        final int oz = feet.z & ~3;
+        final BlockPos.MutableBlockPos mut = new BlockPos.MutableBlockPos();
+        cubes:
+        for (int oy = feet.y & ~3; oy <= limit; oy += 4) {
+            for (int x = ox; x < ox + 4; x++) {
+                for (int y = oy; y < oy + 4; y++) {
+                    for (int z = oz; z < oz + 4; z++) {
+                        if (!ctx.world().getBlockState(mut.set(x, y, z)).isAir()) {
+                            continue cubes;
+                        }
+                    }
+                }
+            }
+            return new BetterBlockPos(ox + 2, oy + 2, oz + 2);
+        }
+        return null;
     }
 
     /**
