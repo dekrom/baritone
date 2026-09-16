@@ -1037,7 +1037,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             return first.equals(second); // early return if no properties are being ignored
         }
         for (Property<?> prop : first.getProperties()) {
-            if (first.getValue(prop) != second.getValue(prop)
+            if (!Objects.equals(first.getValue(prop), second.getValue(prop))
                     && !(ignoreDirection && ORIENTATION_PROPS.contains(prop))
                     && !ignoredProps.contains(prop.getName())) {
                 return false;
