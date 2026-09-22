@@ -25,11 +25,11 @@ import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
-import org.apache.commons.lang3.SystemUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -94,6 +94,8 @@ public class WorldProvider implements IWorldProvider {
             synchronized (worldCache) {
                 this.currentWorld = worldCache.computeIfAbsent(worldDataDir, d -> new WorldData(d, world.dimensionType(), world.dimension()));
             }
+            // a WorldData is reused across visits; its cache holds no regions and no threads while closed
+            this.currentWorld.cache.activate();
             this.mcWorld = ctx.world();
         });
     }
@@ -147,16 +149,46 @@ public class WorldProvider implements IWorldProvider {
                 mcWorld = ctx.world();
                 return Optional.empty();
             }
-            if (SystemUtils.IS_OS_WINDOWS) {
-                folderName = folderName.replace(":", "_");
-            }
             // TODO: This should probably be in "baritone/servers"
-            worldDir = baritone.getDirectory().resolve(folderName);
+            worldDir = baritone.getDirectory().resolve(serverFolderName(baritone.getDirectory(), folderName));
             // Just write the readme to the baritone directory instead of each server save in it
             readmeDir = baritone.getDirectory();
         }
 
         return Optional.of(new Pair<>(worldDir, readmeDir));
+    }
+
+    /**
+     * Windows, and NTFS mounted with windows_names, reject {@code : * ? " < > |} in a file name, so a direct-IP
+     * server ("host:port") could never get a cache directory there and every region save and load threw. Names
+     * are sanitised on every platform now (":" becomes "_", the same name Windows always produced). A directory
+     * under the raw name that already exists, written by an earlier version on Linux, keeps being used.
+     */
+    static String serverFolderName(Path baritoneDir, String rawName) {
+        String sanitised = sanitizeFileName(rawName);
+        if (!sanitised.equals(rawName)) {
+            try {
+                if (Files.isDirectory(baritoneDir.resolve(rawName))) {
+                    return rawName;
+                }
+            } catch (InvalidPathException ignored) {
+                // the raw name is not a legal path on this platform, so nothing can exist under it
+            }
+        }
+        return sanitised;
+    }
+
+    static String sanitizeFileName(String name) {
+        StringBuilder out = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            out.append(c < 0x20 || "\\/:*?\"<>|".indexOf(c) >= 0 ? '_' : c);
+        }
+        int end = out.length();
+        while (end > 0 && (out.charAt(end - 1) == '.' || out.charAt(end - 1) == ' ')) {
+            end--;
+        }
+        return end == 0 ? "_" : out.substring(0, end);
     }
 
     /**

@@ -90,6 +90,13 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
      * tearing down only fires if nothing else (a cancel, another goal) happened in the meantime.
      */
     private int engageEpoch;
+    /**
+     * Destination of an engage that is waiting on {@link #npfDestroyDone} for the previous context's
+     * teardown (see {@link #pathTo0}); null when none is. Keeps the process active and its destination
+     * visible in the meantime, so the pathing manager keeps ticking us and callers polling for the goal
+     * don't re-issue it. Cleared wherever {@link #engageEpoch} is bumped, which is what drops the deferral.
+     */
+    private BlockPos deferredDestination;
     // incremented from the pathfinder's worker threads, reset from wherever a path completes
     private final AtomicInteger consecutivePathCalcFailures = new AtomicInteger();
     private static final int PATH_CALC_FAILURES_BEFORE_RESET = 3;
@@ -158,6 +165,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             return;
         }
         this.engageEpoch++;
+        this.deferredDestination = null;
         this.state = State.START_FLYING; // TODO: null state?
         this.goingToLandingSpot = false;
         this.landingSpot = null;
@@ -207,6 +215,17 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         this.onLostControl();
     }
 
+    /**
+     * Engaged, but without a behavior: {@link #pathTo0} queued its creation behind the previous pathfinder
+     * context's teardown, either because a setting change just reset us mid-tick or because we were
+     * re-engaged before that teardown was done. Hold control until the deferred engage lands instead of
+     * ticking a behavior we don't have, and let go of whatever keys the old one left forced.
+     */
+    private PathingCommand holdForDeferredEngage() {
+        baritone.getInputOverrideHandler().clearAllKeys();
+        return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+    }
+
     public static IElytraProcess create(final Baritone baritone) {
         return NetherPathfinderContext.isSupported()
                 ? new ElytraProcess(baritone)
@@ -215,7 +234,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
 
     @Override
     public boolean isActive() {
-        return this.behavior != null;
+        return this.behavior != null || this.deferredDestination != null;
     }
 
     @Override
@@ -233,6 +252,9 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
 
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
+        if (this.behavior == null) {
+            return holdForDeferredEngage();
+        }
         try {
             final long seedSetting = Baritone.settings().elytraNetherSeed.value;
             if (seedSetting != this.behavior.npfContext.getSeed()) {
@@ -262,6 +284,10 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
         } catch (IllegalArgumentException e) {
             logDirect(e.getMessage(), ChatFormatting.RED);
             return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
+        }
+        if (this.behavior == null) {
+            // one of the resets above tore the context down and had to defer the re-engage
+            return holdForDeferredEngage();
         }
 
         this.behavior.onTick();
@@ -771,7 +797,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
 
     @Override
     public BlockPos currentDestination() {
-        return this.behavior != null ? this.behavior.destination : null;
+        return this.behavior != null ? this.behavior.destination : this.deferredDestination;
     }
 
     @Override
@@ -804,6 +830,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
                 // thread for its whole remaining duration, so finish this engage when the
                 // teardown completes instead - unless something else took over in the meantime.
                 final int epoch = this.engageEpoch;
+                this.deferredDestination = destination;
                 this.npfDestroyDone.whenCompleteAsync((v, ex) -> {
                     if (this.engageEpoch == epoch) {
                         this.pathTo0(destination, appendDestination);
@@ -931,6 +958,7 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
             // Exiting the world, just destroy. A world change also invalidates any engage that was
             // deferred while the old context tore down - its destination belongs to the old world.
             this.engageEpoch++;
+            this.deferredDestination = null;
             destroyBehaviorAsync();
         }
     }
