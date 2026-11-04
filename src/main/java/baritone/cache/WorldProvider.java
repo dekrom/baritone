@@ -94,6 +94,8 @@ public class WorldProvider implements IWorldProvider {
             synchronized (worldCache) {
                 this.currentWorld = worldCache.computeIfAbsent(worldDataDir, d -> new WorldData(d, world.dimensionType(), world.dimension()));
             }
+            // a WorldData is reused across visits; its cache holds no regions and no threads while closed
+            this.currentWorld.cache.activate();
             this.mcWorld = ctx.world();
         });
     }
