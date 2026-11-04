@@ -73,6 +73,8 @@ public final class CachedWorld implements ICachedWorld, Helper {
 
     private static final int KNOWN_ABSENT_MAX = 65_536;
 
+    private static final int DROPPED_PACKS_MAX = 65_536;
+
     private static final ScheduledExecutorService MAINTENANCE = Executors.newSingleThreadScheduledExecutor(
             new ThreadFactoryBuilder().setNameFormat("baritone-cache-maintenance").setDaemon(true).build());
 
@@ -111,6 +113,12 @@ public final class CachedWorld implements ICachedWorld, Helper {
      * while waiting in the queue for the packer thread to get to it.
      */
     private final Map<ChunkPos, LevelChunk> toPackMap = CacheBuilder.newBuilder().softValues().<ChunkPos, LevelChunk>build().asMap();
+
+    /**
+     * Chunks whose latest pack was dropped (packer queue over chunkPackerQueueMaxSize, or the soft reference
+     * collected first), so whatever the cache holds for them predates that load.
+     */
+    private final Set<ChunkPos> droppedPacks = ConcurrentHashMap.newKeySet();
 
     /**
      * Region ids with a disk load queued on the loader thread. Guarded by this.
@@ -188,6 +196,19 @@ public final class CachedWorld implements ICachedWorld, Helper {
             return false;
         }
         return region.isCached(blockX & 511, blockZ & 511);
+    }
+
+    /**
+     * Whether the cache holds what the current load of this chunk packed: it is cached, the pack queued when it
+     * loaded was not dropped, and no pack of it is still waiting. A copy from an earlier load or session does not
+     * count.
+     */
+    public final boolean holdsPackOfCurrentLoad(int chunkX, int chunkZ) {
+        ChunkPos pos = new ChunkPos(chunkX, chunkZ);
+        if (toPackMap.containsKey(pos) || droppedPacks.contains(pos)) {
+            return false;
+        }
+        return isCached(chunkX << 4, chunkZ << 4);
     }
 
     public final boolean regionLoaded(int blockX, int blockZ) {
@@ -490,6 +511,13 @@ public final class CachedWorld implements ICachedWorld, Helper {
         return regionX <= REGION_MAX && regionX >= -REGION_MAX && regionZ <= REGION_MAX && regionZ >= -REGION_MAX;
     }
 
+    private void markDropped(ChunkPos pos) {
+        if (droppedPacks.size() >= DROPPED_PACKS_MAX) {
+            droppedPacks.clear();
+        }
+        droppedPacks.add(pos);
+    }
+
     private class PackerThread implements Runnable {
 
         public void run() {
@@ -502,13 +530,16 @@ public final class CachedWorld implements ICachedWorld, Helper {
                     }
                     LevelChunk chunk = toPackMap.remove(pos);
                     if (chunk == null) {
-                        continue; // soft reference collected before we got to it
+                        markDropped(pos); // soft reference collected before we got to it
+                        continue;
                     }
                     if (toPackQueue.size() > Baritone.settings().chunkPackerQueueMaxSize.value) {
+                        markDropped(pos);
                         continue;
                     }
                     CachedChunk cached = ChunkPacker.pack(chunk);
                     CachedWorld.this.updateCachedChunk(cached);
+                    droppedPacks.remove(pos);
                     //System.out.println("Processed chunk at " + chunk.x + "," + chunk.z);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
