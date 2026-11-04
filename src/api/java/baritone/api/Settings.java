@@ -664,6 +664,13 @@ public final class Settings {
     public final Setting<Boolean> cachedRegionsLoadOnDemand = new Setting<>(true);
 
     /**
+     * Pack a chunk again when it unloads even if no block changed since it was packed on load. Off by default:
+     * the unload pack doubled the packer's work for an identical result. A chunk that changed while loaded, or
+     * that is not in the cache (its load-time pack was dropped by a full packer queue), is still packed on unload.
+     */
+    public final Setting<Boolean> repackUnchangedChunksOnUnload = new Setting<>(false);
+
+    /**
      * The chunk packer queue can never grow to larger than this, if it does, the oldest chunks are discarded
      * <p>
      * The newest chunks are kept, so that if you're moving in a straight line quickly then stop, your immediate render distance is still included

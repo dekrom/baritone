@@ -101,6 +101,14 @@ public final class GameEventHandler implements IEventBus, Helper {
         if (event.isPostPopulate() || isPreUnload) {
             baritone.getWorldProvider().ifWorldLoaded(worldData -> {
                 LevelChunk chunk = world.getChunk(event.getX(), event.getZ());
+                if (isPreUnload
+                        && !Baritone.settings().repackUnchangedChunksOnUnload.value
+                        && !chunk.isUnsaved()
+                        && worldData.getCachedWorld().isCached(event.getX() << 4, event.getZ() << 4)) {
+                    // packed on load and no block changed since (the client marks a chunk unsaved on every
+                    // setBlockState): the cache already holds this exact chunk
+                    return;
+                }
                 worldData.getCachedWorld().queueForPacking(chunk);
             });
         }

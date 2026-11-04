@@ -57,7 +57,9 @@ public final class ChunkPacker {
             LevelChunkSection[] chunkInternalStorageArray = chunk.getSections();
             for (int y0 = 0; y0 < height / 16; y0++) {
                 LevelChunkSection extendedblockstorage = chunkInternalStorageArray[y0];
-                if (extendedblockstorage == null) {
+                // modern chunks never have null sections; an all-air section still packs to zeros, so skip the
+                // 4096 block lookups (most of an overworld column above the surface, the nether above the roof)
+                if (extendedblockstorage == null || extendedblockstorage.hasOnlyAir()) {
                     // any 16x16x16 area that's all air will have null storage
                     // for example, in an ocean biome, with air from y=64 to y=256
                     // the first 4 extended blocks storages will be full
