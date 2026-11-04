@@ -44,6 +44,19 @@
     @baritone.KeepName *;
 }
 
+# XaeroPlus (BaritonePathSync) reflects the elytra path through these members by name;
+# Meteor's obfuscated builds rename them and lose the map overlay
+-keepclassmembers class baritone.process.ElytraProcess {
+    baritone.process.elytra.ElytraBehavior behavior;
+}
+-keepclassmembers class baritone.process.elytra.ElytraBehavior {
+    baritone.process.elytra.ElytraBehavior$PathManager pathManager;
+}
+-keepclassmembers class baritone.process.elytra.ElytraBehavior$PathManager {
+    baritone.process.elytra.NetherPath path;
+    public baritone.process.elytra.NetherPath getPath();
+}
+
 # setting names are reflected from field names, so keep field names
 -keepclassmembers class baritone.api.Settings {
     public <fields>;
