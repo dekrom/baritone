@@ -25,6 +25,7 @@ import baritone.api.event.listener.IGameEventListener;
 import baritone.api.utils.Helper;
 import baritone.api.utils.Pair;
 import baritone.cache.CachedChunk;
+import baritone.cache.CachedWorld;
 import baritone.cache.WorldProvider;
 import baritone.utils.BlockStateInterface;
 import net.minecraft.world.level.ChunkPos;
@@ -104,7 +105,7 @@ public final class GameEventHandler implements IEventBus, Helper {
                 if (isPreUnload
                         && !Baritone.settings().repackUnchangedChunksOnUnload.value
                         && !chunk.isUnsaved()
-                        && worldData.getCachedWorld().isCached(event.getX() << 4, event.getZ() << 4)) {
+                        && ((CachedWorld) worldData.getCachedWorld()).holdsPackOfCurrentLoad(event.getX(), event.getZ())) {
                     // packed on load and no block changed since (the client marks a chunk unsaved on every
                     // setBlockState): the cache already holds this exact chunk
                     return;

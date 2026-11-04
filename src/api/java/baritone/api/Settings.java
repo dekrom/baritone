@@ -686,7 +686,7 @@ public final class Settings {
     /**
      * Pack a chunk again when it unloads even if no block changed since it was packed on load. Off by default:
      * the unload pack doubled the packer's work for an identical result. A chunk that changed while loaded, or
-     * that is not in the cache (its load-time pack was dropped by a full packer queue), is still packed on unload.
+     * whose load-time pack was dropped or has not run yet, is still packed on unload.
      */
     public final Setting<Boolean> repackUnchangedChunksOnUnload = new Setting<>(false);
 
