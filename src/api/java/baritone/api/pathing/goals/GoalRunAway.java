@@ -34,7 +34,7 @@ public class GoalRunAway implements Goal {
 
     private final BlockPos[] from;
 
-    private final int distanceSq;
+    private final double distanceSq;
 
     private final Integer maintainY;
 
@@ -47,7 +47,7 @@ public class GoalRunAway implements Goal {
             throw new IllegalArgumentException("Positions to run away from must not be empty");
         }
         this.from = from;
-        this.distanceSq = (int) (distance * distance);
+        this.distanceSq = distance * distance;
         this.maintainY = maintainY;
     }
 
@@ -57,9 +57,9 @@ public class GoalRunAway implements Goal {
             return false;
         }
         for (BlockPos p : from) {
-            int diffX = x - p.getX();
-            int diffZ = z - p.getZ();
-            int distSq = diffX * diffX + diffZ * diffZ;
+            double diffX = (double) x - p.getX();
+            double diffZ = (double) z - p.getZ();
+            double distSq = diffX * diffX + diffZ * diffZ;
             if (distSq < distanceSq) {
                 return false;
             }
@@ -143,8 +143,8 @@ public class GoalRunAway implements Goal {
     @Override
     public int hashCode() {
         int hash = Arrays.hashCode(from);
-        hash = hash * 1196803141 + distanceSq;
-        hash = hash * -2053788840 + maintainY;
+        hash = hash * 1196803141 + Double.hashCode(distanceSq);
+        hash = hash * -2053788840 + Objects.hashCode(maintainY);
         return hash;
     }
 
