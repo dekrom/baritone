@@ -52,8 +52,8 @@ import java.util.concurrent.TimeUnit;
  * The RAM tier of the chunk cache. The disk tier (one .bcr per region) keeps everything ever seen; RAM holds
  * only regions in use: written by the packer, read by pathing or scanning. One shared daemon thread writes
  * changed regions every {@code cachedRegionsSaveIntervalSeconds} and evicts idle or over-budget regions
- * ({@link RegionRetentionPolicy}); a region is never evicted while it has unsaved changes. Pathing misses
- * pull regions back from disk in the background.
+ * ({@link RegionRetentionPolicy}); a region is never evicted while it has unsaved changes that can still be
+ * saved. Pathing misses pull regions back from disk in the background.
  *
  * @author Brady
  * @since 8/4/2018
@@ -314,6 +314,9 @@ public final class CachedWorld implements ICachedWorld, Helper {
         if (!everything && !Baritone.settings().pruneRegionsFromRAM.value) {
             return;
         }
+        // with chunk caching off or no cache directory nothing ever saves a region, so its unsaved changes would
+        // pin it in RAM for good; drop them instead, as the old distance prune did
+        boolean saveable = diskAvailable && Baritone.settings().chunkCaching.value;
         List<CachedRegion> regions = allRegions();
         List<RegionRetentionPolicy.Candidate> candidates = new ArrayList<>(regions.size());
         for (CachedRegion region : regions) {
@@ -321,7 +324,7 @@ public final class CachedWorld implements ICachedWorld, Helper {
                 candidates.add(new RegionRetentionPolicy.Candidate(
                         getRegionID(region.getX(), region.getZ()),
                         region.getLastAccessMs(),
-                        region.hasUnsavedChanges(),
+                        saveable && region.hasUnsavedChanges(),
                         region.approximateHeapBytes()));
             }
         }
@@ -339,7 +342,7 @@ public final class CachedWorld implements ICachedWorld, Helper {
             for (int i = 0; i < victims.size(); i++) {
                 long id = victims.getLong(i);
                 CachedRegion region = cachedRegions.get(id);
-                if (region != null && region.tryEvict()) {
+                if (region != null && region.tryEvict(!saveable)) {
                     cachedRegions.remove(id);
                     evicted++;
                 }
