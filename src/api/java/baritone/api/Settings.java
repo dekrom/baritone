@@ -648,15 +648,39 @@ public final class Settings {
     public final Setting<Boolean> chunkCaching = new Setting<>(true);
 
     /**
-     * On save, delete from RAM any cached regions that are more than 1024 blocks away from the player
+     * Evict cached regions from RAM. The cache maintenance thread drops a region once it has been idle (not read
+     * by pathing or scanning, not written by the packer) for longer than {@link #cachedRegionsIdleSeconds}, and
+     * drops the least recently used regions whenever the resident cache exceeds {@link #cachedRegionsRamBudgetMB}.
+     * Regions with unsaved changes are written to disk first and are never evicted before that write succeeded.
      * <p>
-     * Temporarily disabled
-     * <p>
-     * Temporarily reenabled
-     *
-     * @see <a href="https://github.com/cabaletta/baritone/issues/248">Issue #248</a>
+     * false keeps every region touched in this session in RAM.
      */
     public final Setting<Boolean> pruneRegionsFromRAM = new Setting<>(true);
+
+    /**
+     * Upper bound for the cached regions kept in RAM, in MiB. A fully cached region costs about 27 MiB
+     * (1024 chunks of 24 KiB block data). The bound is soft by one maintenance tick.
+     */
+    public final Setting<Integer> cachedRegionsRamBudgetMB = new Setting<>(192);
+
+    /**
+     * A cached region that nothing has read or written for this many seconds is evicted from RAM (after being
+     * saved if it changed). Regions come back from disk on demand.
+     */
+    public final Setting<Integer> cachedRegionsIdleSeconds = new Setting<>(180);
+
+    /**
+     * How often changed regions are written to disk. The elytra nether pathfinder reads the region files, so this
+     * is also how long newly seen terrain takes to become visible to it.
+     */
+    public final Setting<Integer> cachedRegionsSaveIntervalSeconds = new Setting<>(30);
+
+    /**
+     * When pathing asks for a region that is not in RAM, load it from disk in the background so the next path
+     * calculation sees terrain explored in earlier sessions. Without this only the packer (chunks around the
+     * player) and explicit scans (#find, explore) ever bring regions into RAM.
+     */
+    public final Setting<Boolean> cachedRegionsLoadOnDemand = new Setting<>(true);
 
     /**
      * The chunk packer queue can never grow to larger than this, if it does, the oldest chunks are discarded
