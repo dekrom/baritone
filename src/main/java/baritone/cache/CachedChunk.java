@@ -180,6 +180,13 @@ public final class CachedChunk {
         return 2 * 16 * 16 * dimension_height;
     }
 
+    /**
+     * Rough heap footprint: the 2-bit block data plus the overview, height map and special-block index.
+     */
+    public int approximateHeapBytes() {
+        return sizeInBytes + 2_560 + (special == null ? 0 : special.size() * 48);
+    }
+
     public static int sizeInBytes(int size) {
         return size / 8;
     }
