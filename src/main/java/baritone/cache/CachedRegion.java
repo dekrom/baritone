@@ -74,6 +74,16 @@ public final class CachedRegion implements ICachedRegion {
      */
     private boolean hasUnsavedChanges;
 
+    /**
+     * Wall-clock time of the last read or write through CachedWorld; drives idle and LRU eviction
+     */
+    private volatile long lastAccessMs = System.currentTimeMillis();
+
+    /**
+     * Set under the region lock when CachedWorld drops this instance from RAM; a late write must go to the live instance
+     */
+    private boolean evicted;
+
     CachedRegion(int x, int z, DimensionType dimension, ResourceKey<Level> dimensionId) {
         this.x = x;
         this.z = z;
@@ -113,9 +123,53 @@ public final class CachedRegion implements ICachedRegion {
         return res;
     }
 
-    public final synchronized void updateCachedChunk(int chunkX, int chunkZ, CachedChunk chunk) {
+    /**
+     * @return false when this instance was evicted from RAM before the write; the caller must look the region up again
+     */
+    public final synchronized boolean updateCachedChunk(int chunkX, int chunkZ, CachedChunk chunk) {
+        if (evicted) {
+            return false;
+        }
         this.chunks[chunkX][chunkZ] = chunk;
         hasUnsavedChanges = true;
+        lastAccessMs = System.currentTimeMillis();
+        return true;
+    }
+
+    final void touch() {
+        lastAccessMs = System.currentTimeMillis();
+    }
+
+    final long getLastAccessMs() {
+        return lastAccessMs;
+    }
+
+    final synchronized boolean hasUnsavedChanges() {
+        return hasUnsavedChanges;
+    }
+
+    /**
+     * Marks the region evicted unless it still has unsaved changes (the packer may have written since the last save).
+     */
+    final synchronized boolean tryEvict() {
+        if (hasUnsavedChanges) {
+            return false;
+        }
+        evicted = true;
+        return true;
+    }
+
+    final long approximateHeapBytes() {
+        long total = 0;
+        for (int x = 0; x < 32; x++) {
+            for (int z = 0; z < 32; z++) {
+                CachedChunk chunk = this.chunks[x][z];
+                if (chunk != null) {
+                    total += chunk.approximateHeapBytes();
+                }
+            }
+        }
+        return total;
     }
 
 
@@ -375,7 +429,7 @@ public final class CachedRegion implements ICachedRegion {
         return this.z;
     }
 
-    private static Path getRegionFile(Path cacheDir, int regionX, int regionZ) {
+    static Path getRegionFile(Path cacheDir, int regionX, int regionZ) {
         return Paths.get(cacheDir.toString(), "r." + regionX + "." + regionZ + ".bcr");
     }
 }
