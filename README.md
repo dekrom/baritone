@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/MC-1.21.11-brightgreen.svg" alt="1.21.11"/>
   <img src="https://img.shields.io/badge/MC-26.1-brightgreen.svg" alt="26.1"/>
   <img src="https://img.shields.io/badge/MC-26.2-brightgreen.svg" alt="26.2"/>
+  <img src="https://img.shields.io/badge/MC-26.3-brightgreen.svg" alt="26.3"/>
 </p>
 
 A Minecraft pathfinder bot. This is a fork of [Baritone](https://github.com/cabaletta/baritone) by
@@ -36,6 +37,7 @@ existed on one of them.
 | 1.21.11   | [`1.21.11`](https://github.com/dekrom/baritone/tree/1.21.11) | 21   | `v<version>-1.21.11` |
 | 26.1      | [`26.1`](https://github.com/dekrom/baritone/tree/26.1)       | 25   | `v<version>-26.1`    |
 | 26.2      | [`26.2`](https://github.com/dekrom/baritone/tree/26.2)       | 25   | `v<version>-26.2`    |
+| 26.3      | [`26.3`](https://github.com/dekrom/baritone/tree/26.3)       | 25   | `v<version>-26.3`    |
 
 Each Minecraft version has its own branch and its own release. Fabric only.
 
@@ -128,6 +130,8 @@ world stops matching the path.
   executors, and the octree interface caches a raw pointer into it. Running one of those against
   freed memory is a segfault, not an exception. It is freed under the lock they hold now, and every
   native call is fenced behind a flag that fails safe.
+- **The XaeroPlus path overlay.** XaeroPlus finds the elytra path by field name, and the obfuscated
+  jars renamed those fields, so the path never showed on its map. They keep their names now.
 
 ### Chunk cache
 
@@ -137,6 +141,23 @@ world stops matching the path.
   old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
   nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
   rest of the flight.
+- **RAM is bounded.** Regions were only dropped from RAM after the ten minute save, and only by
+  distance from the player, so nothing capped how much of the cache stayed resident on a long trip.
+  A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
+  drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
+  least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
+  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
+  in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
+  earlier session counts again.
+- **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
+  never are, so every all-air section cost 4096 block lookups to pack to zeros: most of an overworld
+  column above the surface and the nether above the roof. Those are skipped now, and a chunk that
+  unloads unchanged since it was packed on load is not packed again
+  (`repackUnchangedChunksOnUnload` brings that back).
+- **Server folder names.** Only Windows had the colon of a `host:port` server replaced, so on an
+  NTFS drive mounted under Linux such a server never got a cache directory and every region save
+  failed. Names are sanitised on every platform now, and an existing directory under the old name
+  keeps being used.
 
 ### Pathfinding correctness
 
@@ -155,6 +176,10 @@ world stops matching the path.
 - `backtrackCostFavoringCoefficient` at 0 or below produced a non-positive action cost, which A\*
   rejects, failing the whole calculation instead of favoring nothing.
 - `GoalGetToBlock` reported an ETA that never counted down to zero.
+- `GoalNear` and `GoalRunAway` squared `int` coordinate differences, which overflow: a point 65,536
+  blocks away could satisfy a two-block `GoalNear`. `GoalRunAway` also truncated its radius and
+  threw when hashed without a y constraint.
+- `#find` searched the cache around the player's y where it meant their z.
 
 ### Pathing thread
 
@@ -169,7 +194,7 @@ world stops matching the path.
   before the cheap checks that almost always decide the outcome; `PathExecutor` built a whole
   `CalculationContext` per tick to read two fields off it.
 
-### 26.2 only
+### 26.2 and 26.3 only
 
 - Nether pathfinder chunk packing wrote solid sections as air, so `#elytra` planned paths straight
   through terrain. The 26.2 port had replaced the removed `LevelChunkSection.SECTION_SIZE` (4096,
@@ -193,6 +218,12 @@ world stops matching the path.
   terrain prediction was off, on the theory that it only reads the cache. With `elytraUseCache` it
   also parses region files into it, and an insert that rehashes the map under the solvers' lookups
   is heap corruption. A path calculation is always a writer now.
+- **`#elytra` going idle mid-engage.** An engage deferred behind the old context's teardown left the
+  process without a behavior, so it reported itself inactive and dropped its destination; the
+  pathing manager stopped ticking it and anything polling for the goal issued it again. It stays
+  active and keeps its destination until the engage lands.
+- **`#mine` stopped picking up items.** Upstream's #5058 resolved loot tables through the client's
+  registries, which never contain them, so every block had no drops. Reverted, as upstream did.
 
 ## Building
 
