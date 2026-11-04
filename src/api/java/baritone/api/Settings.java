@@ -652,8 +652,7 @@ public final class Settings {
     public final Setting<Integer> cachedRegionsIdleSeconds = new Setting<>(180);
 
     /**
-     * How often changed regions are written to disk. The elytra nether pathfinder reads the region files, so this
-     * is also how long newly seen terrain takes to become visible to it.
+     * How often changed regions are written to disk.
      */
     public final Setting<Integer> cachedRegionsSaveIntervalSeconds = new Setting<>(30);
 
