@@ -29,20 +29,20 @@ public class GoalNear implements Goal, IGoalRenderPos {
     private final int x;
     private final int y;
     private final int z;
-    private final int rangeSq;
+    private final long rangeSq;
 
     public GoalNear(BlockPos pos, int range) {
         this.x = pos.getX();
         this.y = pos.getY();
         this.z = pos.getZ();
-        this.rangeSq = range * range;
+        this.rangeSq = (long) range * range;
     }
 
     @Override
     public boolean isInGoal(int x, int y, int z) {
-        int xDiff = x - this.x;
-        int yDiff = y - this.y;
-        int zDiff = z - this.z;
+        long xDiff = (long) x - this.x;
+        long yDiff = (long) y - this.y;
+        long zDiff = (long) z - this.z;
         return xDiff * xDiff + yDiff * yDiff + zDiff * zDiff <= rangeSq;
     }
 
@@ -105,7 +105,7 @@ public class GoalNear implements Goal, IGoalRenderPos {
 
     @Override
     public int hashCode() {
-        return (int) BetterBlockPos.longHash(x, y, z) + rangeSq;
+        return (int) BetterBlockPos.longHash(x, y, z) + Long.hashCode(rangeSq);
     }
 
     @Override
