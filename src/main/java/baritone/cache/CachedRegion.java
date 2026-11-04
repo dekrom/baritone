@@ -150,9 +150,10 @@ public final class CachedRegion implements ICachedRegion {
 
     /**
      * Marks the region evicted unless it still has unsaved changes (the packer may have written since the last save).
+     * {@code discardUnsaved} drops them anyway, for when nothing is able to save them.
      */
-    final synchronized boolean tryEvict() {
-        if (hasUnsavedChanges) {
+    final synchronized boolean tryEvict(boolean discardUnsaved) {
+        if (hasUnsavedChanges && !discardUnsaved) {
             return false;
         }
         evicted = true;

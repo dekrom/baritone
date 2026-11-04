@@ -649,7 +649,8 @@ public final class Settings {
      * Evict cached regions from RAM. The cache maintenance thread drops a region once it has been idle (not read
      * by pathing or scanning, not written by the packer) for longer than {@link #cachedRegionsIdleSeconds}, and
      * drops the least recently used regions whenever the resident cache exceeds {@link #cachedRegionsRamBudgetMB}.
-     * Regions with unsaved changes are written to disk first and are never evicted before that write succeeded.
+     * Regions with unsaved changes are written to disk first and are never evicted before that write succeeded,
+     * unless {@link #chunkCaching} is off and nothing will ever write them.
      * <p>
      * false keeps every region touched in this session in RAM.
      */
