@@ -132,6 +132,16 @@ world stops matching the path.
   native call is fenced behind a flag that fails safe.
 - **The XaeroPlus path overlay.** XaeroPlus finds the elytra path by field name, and the obfuscated
   jars renamed those fields, so the path never showed on its map. They keep their names now.
+- **The collision sweep collapsed.** The check for terrain in the way of the next tick grew the
+  hitbox by the motion vector with `inflate`, which adds the vector to both faces: moving west, north
+  or down shrank the box instead of extending it, so a wall or a lava pool on that side went unseen
+  and a block the box had flown clean over was reported as a hit. The box is extended in the
+  direction of travel now, so it covers everything between here and the next position.
+- **Changing goals quickly.** The game thread could wait forever on a solver run that would never
+  get scheduled; the wait is bounded now. A goal outside the world while flying threw an exception
+  instead of saying why it was refused, and a failed path calculation tore the process down from the
+  pathfinder's worker thread, racing whatever the game thread was doing with it; both go through the
+  game thread now.
 
 ### Chunk cache
 
@@ -146,9 +156,21 @@ world stops matching the path.
   A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
   drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
   least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
-  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
-  in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
-  earlier session counts again.
+  with unsaved changes is held until it has been written; when nothing can write it — `chunkCaching`
+  off, or no cache directory — it is evicted like any other, instead of every region the packer
+  touched staying resident for the whole session. A path calculation that reaches a region on disk
+  but not in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in
+  an earlier session counts again. On the 1.21.x branches the elytra pathfinder does not read the
+  region cache at all (`elytraUseCache` is a 26.x setting), so how often regions are saved only
+  decides how much the on-disk cache can lose to a crash, not what `#elytra` sees.
+- **Overworld water cached wrong.** The packer handed the block classifier a y relative to the
+  section where it expected the real one, and in the overworld, whose bottom is at -64, that is 64
+  blocks off: water sources beside flowing water were cached as plain water, and anything at y 256
+  and up indexed past the section array and aborted the rest of that chunk's pack. The nether, which
+  starts at y 0, was never affected, and the 26.x branches already had this.
+- **Waypoints.** Waypoint files were rewritten in place as well, and the loader swallows the
+  exception a truncated file produces, so a save cut off by a crash silently lost every waypoint of
+  that tag. They go through a temp file and a rename too.
 - **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
   never are, so every all-air section cost 4096 block lookups to pack to zeros: most of an overworld
   column above the surface and the nether above the roof. Those are skipped now, and a chunk that
@@ -172,7 +194,6 @@ world stops matching the path.
 - `fullyPassable` listed the blocks you cannot jump through one at a time, so powder snow, honey,
   berry bushes, dripstone and anything in `blocksToAvoid` were considered jumpable. The hitbox is
   the same width in the air as on the ground.
-- A diagonal's second corner was tested for lava but its magma check read the first corner again.
 - `backtrackCostFavoringCoefficient` at 0 or below produced a non-positive action cost, which A\*
   rejects, failing the whole calculation instead of favoring nothing.
 - `GoalGetToBlock` reported an ETA that never counted down to zero.
@@ -180,6 +201,15 @@ world stops matching the path.
   blocks away could satisfy a two-block `GoalNear`. `GoalRunAway` also truncated its radius and
   threw when hashed without a y constraint.
 - `#find` searched the cache around the player's y where it meant their z.
+- `#path` with no goal set said it was pathing and did nothing; it tells you there is no goal.
+- `#build` compared block state property values by reference. Enum and boolean values are
+  singletons and integer values happen to be small enough to be interned, which is why it worked,
+  but nothing guaranteed it; they are compared by value.
+- The positions Baritone looks at and reaches for were its own `BetterBlockPos` subclass, and a few
+  vanilla code paths store the position they are handed, so Baritone's objects ended up as keys in
+  the client's block entity map. Plain `BlockPos` crosses that boundary now.
+- Tab completion for item ids listed blocks, not items.
+- Litematica went undetected, because checking for it loaded one of its classes too early.
 
 ### Pathing thread
 
@@ -224,6 +254,9 @@ world stops matching the path.
   active and keeps its destination until the engage lands.
 - **`#mine` stopped picking up items.** Upstream's #5058 resolved loot tables through the client's
   registries, which never contain them, so every block had no drops. Reverted, as upstream did.
+- A diagonal's second corner was tested for lava but its magma check read the first corner again,
+  so with `allowWalkOnMagmaBlocks` off a diagonal could still cut over magma. The 1.21.x branches
+  predate that setting and never had the bug.
 
 ## Building
 
