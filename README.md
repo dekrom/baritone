@@ -145,15 +145,19 @@ world stops matching the path.
   distance from the player, so nothing capped how much of the cache stayed resident on a long trip.
   A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
   drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
-  least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
-  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
-  in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
-  earlier session counts again.
+  least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). Unsaved
+  changes hold a region in RAM only while something can still save them: with `chunkCaching` off,
+  or no cache directory, nothing ever does, and such regions are evicted like any other. A path
+  calculation that reaches a region on disk but not in RAM loads it back in the background
+  (`cachedRegionsLoadOnDemand`), so terrain seen in an earlier session counts again.
 - **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
   never are, so every all-air section cost 4096 block lookups to pack to zeros: most of an overworld
   column above the surface and the nether above the roof. Those are skipped now, and a chunk that
   unloads unchanged since it was packed on load is not packed again
   (`repackUnchangedChunksOnUnload` brings that back).
+- **Waypoints survive an interrupted save.** Waypoint files were rewritten in place too, so a
+  save cut off by a crash or a closing game left a truncated file, and the next load silently
+  dropped every waypoint of that tag. They go through a temp file and a rename now, like regions.
 - **Server folder names.** Only Windows had the colon of a `host:port` server replaced, so on an
   NTFS drive mounted under Linux such a server never got a cache directory and every region save
   failed. Names are sanitised on every platform now, and an existing directory under the old name
@@ -180,6 +184,15 @@ world stops matching the path.
   blocks away could satisfy a two-block `GoalNear`. `GoalRunAway` also truncated its radius and
   threw when hashed without a y constraint.
 - `#find` searched the cache around the player's y where it meant their z.
+
+### Builder
+
+- **Litematica was reported missing while installed.** The detection loaded a Litematica world
+  class before Litematica was ready for it, and the failure was read as the mod not being present.
+  `#litematica` finds it now.
+- Block state properties were compared by identity. That holds for vanilla's integer properties
+  only because every one of them stays inside the range the JVM interns, which nothing guarantees
+  for a modded block. They are compared by value now.
 
 ### Pathing thread
 
