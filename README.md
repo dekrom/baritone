@@ -141,12 +141,18 @@ world stops matching the path.
   old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
   nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
   rest of the flight.
+- Waypoint files were written the same way, in place, and a save cut off mid-write — a crash, or
+  the game exiting while the file was still being written — left a truncated file that the next
+  load silently discarded, taking every waypoint of that tag with it. They are written to a temp
+  file and renamed over the old one too, so an interrupted save keeps the previous waypoints.
 - **RAM is bounded.** Regions were only dropped from RAM after the ten minute save, and only by
   distance from the player, so nothing capped how much of the cache stayed resident on a long trip.
   A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
   drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
   least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
-  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
+  with unsaved changes is kept while they can still be saved; with `chunkCaching` off or no cache
+  directory nothing ever saves them, so those regions are evicted like any other instead of pinning
+  the whole session's terrain in RAM. A path calculation that reaches a region on disk but not
   in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
   earlier session counts again.
 - **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
@@ -180,6 +186,15 @@ world stops matching the path.
   blocks away could satisfy a two-block `GoalNear`. `GoalRunAway` also truncated its radius and
   threw when hashed without a y constraint.
 - `#find` searched the cache around the player's y where it meant their z.
+
+### Building
+
+- `#litematica` could report Litematica as missing with it installed: the check for it pulled in one
+  of Litematica's world classes before the game could load it.
+- With `buildIgnoreDirection` or `buildIgnoreProperties` set, the comparison between the placed
+  block and the schematic checked each property value by reference rather than by value. Right for
+  every vanilla property by luck — small integers happen to be interned — and nothing guaranteed it
+  stayed that way; it compares by value now.
 
 ### Pathing thread
 
