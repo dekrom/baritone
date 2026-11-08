@@ -117,6 +117,10 @@ public class ElytraProcess extends BaritoneProcessHelper implements IBaritonePro
 
     @Override
     public void onLostControl() {
+        if (!ctx.minecraft().isSameThread()) {
+            ctx.minecraft().execute(this::onLostControl);
+            return;
+        }
         this.state = State.START_FLYING; // TODO: null state?
         this.goingToLandingSpot = false;
         this.landingSpot = null;
