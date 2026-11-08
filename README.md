@@ -132,23 +132,51 @@ world stops matching the path.
   native call is fenced behind a flag that fails safe.
 - **The XaeroPlus path overlay.** XaeroPlus finds the elytra path by field name, and the obfuscated
   jars renamed those fields, so the path never showed on its map. They keep their names now.
+- **The collision sweep collapsed when flying backwards.** The box swept ahead of the player to
+  check the next tick's motion was built by inflating the hitbox by the motion vector, and inflating
+  by a negative amount shrinks a box instead of extending it, so any flight along the negative side
+  of an axis — west, north or downwards — checked a box smaller than the player, or no box at all,
+  and flew into terrain the raytraces never saw. The box is now extended towards the motion, which
+  covers the full swept volume in every direction.
+- **A solver wait without a limit.** A cancelled or restarted engage could wait forever on a solver
+  run that never got scheduled, hanging `#elytra` until a restart; the wait is bounded to five ticks
+  and the solution is recomputed on the spot when it runs out.
+- **A path failure reported from the wrong thread.** When the pathfinder could not find a path it
+  reported back from its own worker thread straight into the state the game thread owns. It is
+  handed to the game thread first now.
+- **An out-of-range goal while flying.** Setting a goal with a y outside the nether's 0–128, or one
+  that is neither a block nor an XZ goal, while `#elytra` was flying threw an exception out of the
+  command instead of a message. It is refused in chat and the flight continues.
 
 ### Chunk cache
 
 - Region files were rewritten in place, from the cache save thread, while everything else was
   reading them. A read that landed mid-rewrite got a truncated gzip stream and threw away a
   512×512 region's worth of cached terrain. Saves are written to a temp file and renamed over the
-  old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
-  nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
-  rest of the flight.
+  old one, so a reader sees either the previous region or the new one. On 26.2 and 26.3 this is
+  what the nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone
+  for the rest of the flight. Waypoint files were rewritten in place the same way, and a crash
+  mid-write lost every waypoint of that tag; they get the same treatment.
+- **On 1.21.x the elytra pathfinder never reads the cache.** `elytraUseCache` exists only on 26.2
+  and 26.3; here the nether pathfinder sees only the chunks the game loaded this session, so the
+  settings below shape walking paths and `#find`, and `cachedRegionsSaveIntervalSeconds` decides
+  only how much a crash can lose.
 - **RAM is bounded.** Regions were only dropped from RAM after the ten minute save, and only by
   distance from the player, so nothing capped how much of the cache stayed resident on a long trip.
   A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
   drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
   least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
-  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
-  in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
+  with unsaved changes stays as long as those changes can still be written; with `chunkCaching` off,
+  or no cache directory, nothing ever saves a region, and such regions are evicted like any other
+  instead of pinning RAM for the whole session. A path calculation that reaches a region on disk but
+  not in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
   earlier session counts again.
+- **Overworld water was packed wrong.** The packer handed the block classifier a y relative to the
+  section, which it treats as absolute, and the overworld starts at y −64: the checks for flowing
+  water next to a block and at a chunk edge read 64 blocks above the real ones, so a water source
+  beside flowing water was cached as plain water, and water at y 256 and up indexed past the end of
+  the section array and aborted the rest of that chunk's pack. The nether, whose floor is y 0, was
+  never affected.
 - **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
   never are, so every all-air section cost 4096 block lookups to pack to zeros: most of an overworld
   column above the surface and the nether above the roof. Those are skipped now, and a chunk that
@@ -172,7 +200,6 @@ world stops matching the path.
 - `fullyPassable` listed the blocks you cannot jump through one at a time, so powder snow, honey,
   berry bushes, dripstone and anything in `blocksToAvoid` were considered jumpable. The hitbox is
   the same width in the air as on the ground.
-- A diagonal's second corner was tested for lava but its magma check read the first corner again.
 - `backtrackCostFavoringCoefficient` at 0 or below produced a non-positive action cost, which A\*
   rejects, failing the whole calculation instead of favoring nothing.
 - `GoalGetToBlock` reported an ETA that never counted down to zero.
@@ -193,6 +220,19 @@ world stops matching the path.
 - `bestPathSoFar` allocated a `BetterBlockPos` per node on every tick a calculation was running,
   before the cheap checks that almost always decide the outcome; `PathExecutor` built a whole
   `CalculationContext` per tick to read two fields off it.
+
+### Commands and schematics
+
+- `#path` with no goal set reported that it was pathing. It says `No goal set`.
+- `#build` compared the properties of the wanted block state and the placed one by identity rather
+  than by value, so a block whose state matched in every way could still be read as wrong, broken
+  and placed again.
+- The Litematica bridge referenced one of Litematica's world classes in a way that made the JVM
+  load it while loading the bridge itself, before Litematica was ready; the bridge failed to load
+  and `#litematica` did not see Litematica at all.
+- Baritone's own `BetterBlockPos` leaked into Minecraft's block entity map through the reach and
+  block-centre helpers, where the game later looked it up with a plain `BlockPos` and missed. The
+  helpers hand the game a plain position now.
 
 ### 26.2 and 26.3 only
 
