@@ -132,21 +132,39 @@ world stops matching the path.
   native call is fenced behind a flag that fails safe.
 - **The XaeroPlus path overlay.** XaeroPlus finds the elytra path by field name, and the obfuscated
   jars renamed those fields, so the path never showed on its map. They keep their names now.
+- **Re-engaging in a hurry.** A new goal while the solver was still running waited on it without
+  limit. The wait is a quarter second now, after which the solution is simply recomputed. A path
+  failure the pathfinder reports from its own worker thread is handed to the game thread before the
+  process resets itself, where that state lives.
+- **The swept hitbox.** The collision check along each simulated step grew the player's hitbox by
+  the motion vector on every side, which for a negative component shrinks it: flying west, north or
+  downwards the box could collapse to nothing and the step passed through terrain unseen. The box
+  is extended along the motion now and covers the whole step.
+- **A goal the flight cannot take.** `#goal` with a y outside the nether's 0–128, or a goal type
+  `#elytra` does not fly, threw out of the command while a flight was active. It is reported in chat
+  now and the flight carries on to the old destination.
 
 ### Chunk cache
 
 - Region files were rewritten in place, from the cache save thread, while everything else was
   reading them. A read that landed mid-rewrite got a truncated gzip stream and threw away a
   512×512 region's worth of cached terrain. Saves are written to a temp file and renamed over the
-  old one, so a reader sees either the previous region or the new one. On 26.2 this is what the
-  nether pathfinder reads with `elytraUseCache` on, and a region it fails to parse is gone for the
-  rest of the flight.
+  old one, so a reader sees either the previous region or the new one. On 26.2 and 26.3, with
+  `elytraUseCache` on, these files are also what the nether pathfinder reads, and a region it fails
+  to parse is gone for the rest of the flight; on this branch the pathfinder only sees the chunks
+  the client has loaded, and the save interval below is purely about what survives a restart.
+- Waypoint files were written the same way, in place, and a save cut off mid-write — a crash, or
+  the game exiting while the file was still being written — left a truncated file that the next
+  load silently discarded, taking every waypoint of that tag with it. They are written to a temp
+  file and renamed over the old one too, so an interrupted save keeps the previous waypoints.
 - **RAM is bounded.** Regions were only dropped from RAM after the ten minute save, and only by
   distance from the player, so nothing capped how much of the cache stayed resident on a long trip.
   A maintenance thread now saves changed regions every 30 seconds (`cachedRegionsSaveIntervalSeconds`),
   drops regions nothing has touched for three minutes (`cachedRegionsIdleSeconds`), and then the
   least recently used ones while the cache is over 192 MiB (`cachedRegionsRamBudgetMB`). A region
-  with unsaved changes is never dropped. A path calculation that reaches a region on disk but not
+  with unsaved changes is kept while they can still be saved; with `chunkCaching` off or no cache
+  directory nothing ever saves them, so those regions are evicted like any other instead of pinning
+  the whole session's terrain in RAM. A path calculation that reaches a region on disk but not
   in RAM loads it back in the background (`cachedRegionsLoadOnDemand`), so terrain seen in an
   earlier session counts again.
 - **Less packing.** The check meant to skip empty sections tested for `null`, which modern chunks
@@ -180,6 +198,25 @@ world stops matching the path.
   blocks away could satisfy a two-block `GoalNear`. `GoalRunAway` also truncated its radius and
   threw when hashed without a y constraint.
 - `#find` searched the cache around the player's y where it meant their z.
+- Baritone's `BetterBlockPos` hashes differently from vanilla's `BlockPos`, and two helpers handed
+  one straight to the world, where a block that consults its block entity to answer could file it in
+  Minecraft's block entity map under a key vanilla never finds again. They hand over a plain
+  `BlockPos` now.
+
+### Building
+
+- `#litematica` could report Litematica as missing with it installed: the check for it pulled in one
+  of Litematica's world classes before the game could load it.
+- With `buildIgnoreDirection` or `buildIgnoreProperties` set, the comparison between the placed
+  block and the schematic checked each property value by reference rather than by value. Right for
+  every vanilla property by luck — small integers happen to be interned — and nothing guaranteed it
+  stayed that way; it compares by value now.
+
+### Commands
+
+- `#path` with no goal set announced `Now pathing` and did nothing. It says there is no goal.
+- Tab completion of item ids offered the block registry, so items that are not blocks never
+  completed. It reads the item registry.
 
 ### Pathing thread
 
